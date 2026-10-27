@@ -30,15 +30,12 @@ class TerminalInteractionTest {
             TerminalProbeScreen(onGeometry = { _, rows -> sizes += rows }) {}
         } }
         compose.waitUntil(5000) { sizes.isNotEmpty() }
-        if (compose.onAllNodesWithContentDescription("Hide keyboard").fetchSemanticsNodes().isNotEmpty()) {
-            compose.onNodeWithContentDescription("Hide keyboard").performClick()
-        }
-        waitForKeyboardAndStableGrid(visible = false)
         val grid = compose.onNodeWithContentDescription("Terminal grid")
+        compose.hideTerminalKeyboard(grid)
         val hiddenBounds = grid.fetchSemanticsNode().boundsInRoot
         val before = sizes.size
         compose.onNodeWithContentDescription("Show keyboard").performClick()
-        waitForKeyboardAndStableGrid(visible = true)
+        compose.waitForTerminalKeyboard(visible = true, grid)
         val shownBounds = grid.fetchSemanticsNode().boundsInRoot
         // Floating IMEs are genuinely visible but reserve no bottom inset. Only
         // changed canvas geometry should produce a request, never visibility alone.
@@ -55,25 +52,9 @@ class TerminalInteractionTest {
         val oneRow = with(compose.density) { 56.dp.toPx() }
         org.junit.Assert.assertTrue("expanded dock must stay one row, was ${key.height}px", key.height <= oneRow)
         compose.onNodeWithContentDescription("Hide keyboard").performClick()
-        waitForKeyboardAndStableGrid(visible = false)
+        compose.waitForTerminalKeyboard(visible = false, grid)
         assertEquals(hiddenBounds, grid.fetchSemanticsNode().boundsInRoot)
         assertEquals("IME close must send only changed, settled geometry", afterOpen + openRequests, sizes.size)
-    }
-
-    /** Wait on visibility AND stable bounds; bottom inset alone misses floating IMEs. */
-    private fun waitForKeyboardAndStableGrid(visible: Boolean) {
-        val description = if (visible) "Hide keyboard" else "Show keyboard"
-        var bounds = compose.onNodeWithContentDescription("Terminal grid").fetchSemanticsNode().boundsInRoot
-        var stableSince = android.os.SystemClock.uptimeMillis()
-        compose.waitUntil(5000) {
-            val next = compose.onNodeWithContentDescription("Terminal grid").fetchSemanticsNode().boundsInRoot
-            val now = android.os.SystemClock.uptimeMillis()
-            if (next != bounds || compose.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isEmpty()) {
-                bounds = next
-                stableSince = now
-            }
-            now - stableSince >= 650
-        }
     }
 
     @Test fun animatedCanvasHeightRequestsOnlyFinalGeometry() {

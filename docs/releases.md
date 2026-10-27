@@ -31,8 +31,8 @@ Play Store distribution would be a separate workflow.
 
 Actions are pinned to commit SHAs; Dependabot proposes weekly action updates.
 Builds use the tools in `.mise.toml`, Android SDK 37.0, build-tools 37.0.0 and
-NDK 29.0.14206865. A pinned Android setup action bootstraps command-line tools
-at the SDK path configured by mise; no preinstalled Android SDK is required.
+NDK 29.0.14206865. A pinned Android setup action finds or bootstraps the SDK
+and exports its paths before builds; no preinstalled Android SDK is required.
 SDK packages and pinned tool versions must remain available
 upstream; the first hosted build is the definitive check of a clean runner.
 

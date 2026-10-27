@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sulthonuladib.keroid.data.*
+import com.sulthonuladib.keroid.term.hideTerminalKeyboard
 import com.sulthonuladib.keroid.ui.theme.KeroidTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import org.junit.Assert.*
@@ -43,23 +44,9 @@ class PaneScreenTest {
         // Measuring waits for a settled IME plus a 160 ms quiet window; a loaded
         // emulator can take several seconds for that, so this is a bounded wait.
         compose.waitUntil(15000) { measurements.isNotEmpty() }
-        if (compose.onAllNodesWithContentDescription("Hide keyboard").fetchSemanticsNodes().isNotEmpty()) {
-            compose.onNodeWithContentDescription("Hide keyboard").performClick()
-        }
-        // Await a quiet canvas rather than a particular IME state: hide() is
-        // advisory when no input session is active, and the IME show/hide and
-        // floating-vs-docked contract is verified in TerminalInteractionTest.
-        var settling = android.os.SystemClock.uptimeMillis()
-        var settled = compose.onNodeWithTag("terminal-canvas").fetchSemanticsNode().boundsInRoot
-        compose.waitUntil(15000) {
-            val next = compose.onNodeWithTag("terminal-canvas").fetchSemanticsNode().boundsInRoot
-            val now = android.os.SystemClock.uptimeMillis()
-            if (next != settled) {
-                settled = next
-                settling = now
-            }
-            now - settling >= 500
-        }
+        // Bind the current editor before show/hide, so a delayed initial show
+        // cannot resize the grid while testing unrelated renderer operations.
+        compose.hideTerminalKeyboard(compose.onNodeWithTag("terminal-canvas"))
         compose.waitForIdle()
         val canvas = compose.onNodeWithTag("terminal-canvas").fetchSemanticsNode().boundsInRoot
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
