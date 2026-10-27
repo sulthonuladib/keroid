@@ -100,14 +100,14 @@ before pushing a release tag.
 ## Cutting a release
 
 1. Update `version.properties`: set `versionName=X.Y.Z` and increment
-   `versionCode` monotonically. The first release is `1.0.0` / code `1`.
+   `versionCode` monotonically. The first release is `0.1.0` / code `1`.
    The tag must match exactly; prerelease tags are not currently supported.
 2. Commit, push the branch, and wait for CI to pass.
 3. Tag that verified commit and push the tag:
 
    ```sh
-   git tag -a v1.0.0 -m "Keroid 1.0.0"
-   git push origin v1.0.0
+   git tag -a v0.1.0 -m "Keroid 0.1.0"
+   git push origin v0.1.0
    ```
 
 4. Review/approve the `release` environment deployment when prompted. The
