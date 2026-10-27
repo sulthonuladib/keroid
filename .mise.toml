@@ -1,0 +1,17 @@
+[tools]
+java = "temurin-17.0.21+9"
+go = "1.27.3"
+# Pinned for scripts/build-ghostty.sh; libghostty-vt requires 0.16.0.
+zig = "0.16.0"
+
+[env]
+# Android SDK locations for non-Fish contexts: `mise exec`, background jobs,
+# CI. The Stow-managed Fish snippet still covers interactive fallbacks.
+# Do not set ANDROID_SDK_ROOT: it is deprecated.
+ANDROID_HOME = "{{env.HOME}}/Android/Sdk"
+ANDROID_NDK_HOME = "{{env.HOME}}/Android/Sdk/ndk/29.0.14206865"
+_.path = [
+  "{{env.HOME}}/Android/Sdk/platform-tools",
+  "{{env.HOME}}/Android/Sdk/emulator",
+  "{{env.HOME}}/Android/Sdk/cmdline-tools/latest/bin",
+]

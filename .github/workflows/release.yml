@@ -1,0 +1,101 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    with:
+      release-tag: ${{ github.ref_name }}
+
+  sign:
+    name: Sign verified APK
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Configure tag restrictions and approval in Settings > Environments.
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          env: false
+      - name: Install APK signing tools
+        run: sdkmanager "build-tools;37.0.0"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-release
+          path: unsigned
+      - name: Sign and verify
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          KEROID_KEYSTORE_BASE64: ${{ secrets.KEROID_KEYSTORE_BASE64 }}
+          KEROID_KEYSTORE_PASSWORD: ${{ secrets.KEROID_KEYSTORE_PASSWORD }}
+          KEROID_SIGNING_CERT_SHA256: ${{ vars.KEROID_SIGNING_CERT_SHA256 }}
+          KEROID_KEY_ALIAS: ${{ vars.KEROID_KEY_ALIAS || 'keroid-release' }}
+        run: |
+          set -euo pipefail
+          : "${KEROID_KEYSTORE_BASE64:?Missing release keystore}"
+          : "${KEROID_KEYSTORE_PASSWORD:?Missing release keystore password}"
+          : "${KEROID_SIGNING_CERT_SHA256:?Missing expected signing certificate fingerprint}"
+          python3 scripts/release_checks.py --tag "$RELEASE_TAG"
+          umask 077
+          key_dir="$(mktemp -d "$RUNNER_TEMP/keroid-signing.XXXXXX")"
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s' "$KEROID_KEYSTORE_BASE64" | base64 --decode > "$key_dir/release.p12"
+          unset KEROID_KEYSTORE_BASE64
+          tools="$ANDROID_HOME/build-tools/37.0.0"
+          mkdir -p dist
+          apk="dist/keroid-${RELEASE_TAG#v}-universal.apk"
+          "$tools/zipalign" -c -P 16 4 unsigned/app-release-unsigned.apk
+          "$tools/apksigner" sign \
+            --ks "$key_dir/release.p12" --ks-type PKCS12 \
+            --ks-key-alias "$KEROID_KEY_ALIAS" \
+            --ks-pass env:KEROID_KEYSTORE_PASSWORD --key-pass env:KEROID_KEYSTORE_PASSWORD \
+            --out "$apk" unsigned/app-release-unsigned.apk
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > "$key_dir/verification.txt"
+          python3 scripts/release_checks.py --certificate-report "$key_dir/verification.txt"
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          # Publish only the APK and its checksum, never signing intermediates.
+          (cd dist && sha256sum ./*.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify checksums and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          gh release create "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS \
+            --verify-tag --title "Keroid $RELEASE_TAG" --generate-notes \
+            --notes "Install the universal APK on arm64 Android devices or x86_64 emulators (Android 7.0+). Source archives are provided by GitHub. SHA256SUMS verifies the APK download."

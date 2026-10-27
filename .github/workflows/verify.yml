@@ -1,0 +1,101 @@
+name: Verify
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: Optional release tag to match against version.properties
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go and workflow checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          env: false
+      - name: Validate release metadata and scripts
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          python3 scripts/release_checks.py --tag "$RELEASE_TAG"
+          python3 -m unittest discover -s scripts/tests -v
+          for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+      - name: Go race tests
+        working-directory: core
+        run: go test -race ./...
+
+  android:
+    name: Android builds and emulator tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+      - name: Build Go mobile library
+        run: ./scripts/build-core.sh
+      - name: Build terminal library
+        run: ./scripts/build-ghostty.sh
+      - name: Build, unit test and lint
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache -Pkeroid.unsignedRelease=true \
+            :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest \
+            :app:lintDebug :app:lintRelease
+      - name: Check universal APK contents and version
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: python3 scripts/release_checks.py --tag "$RELEASE_TAG" --apk-dir app/build/outputs/apk/release
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Instrumented tests on API 36
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            ./gradlew --no-daemon --no-configuration-cache :app:connectedDebugAndroidTest
+            adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+            adb -s emulator-5554 shell am start -n com.sulthonuladib.keroid/.MainActivity
+      - name: Upload unsigned release APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-release
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload debug APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-reports
+          path: |
+            app/build/test-results/**/TEST-*.xml
+            app/build/outputs/androidTest-results/connected/**/*.xml
+            app/build/reports/lint-results-*.html
+          retention-days: 7
