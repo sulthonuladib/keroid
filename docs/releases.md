@@ -19,7 +19,9 @@ Play Store distribution would be a separate workflow.
 
 ## Workflows
 
-- `ci.yml`: branch pushes, pull requests and manual runs.
+- `ci.yml`: pushes to `main`, pull requests and manual runs. Branch work is
+  verified through its pull request, so a commit runs the emulator job once and
+  a newer push cancels the run it supersedes.
 - `verify.yml`: shared checks used by CI and releases. Runs Go race tests,
   release-check unit tests, actionlint, native library builds, debug/release
   APK builds, Android unit tests, lint and API 36 emulator tests. It checks the

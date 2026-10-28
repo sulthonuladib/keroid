@@ -9,8 +9,9 @@ Remaining work:
   needs upstream protocol support.
 - **Connection UX:** deliberate reconnection and background notifications
   within Android's delivery constraints.
-- **Terminal polish:** pan inertia/fling, draggable selection handles,
-  selection autoscroll and viewport-only cursor avoidance for the expanded dock.
+- **Terminal polish:** pan inertia/fling, draggable selection handles and
+  selection autoscroll. The floating dock no longer overlaps the live row: the
+  requested grid reserves the dock plus one clear row.
 - **Target SDK 37:** after an API 37 emulator is available for behaviour testing.
 
 Out of scope unless requested: kitty graphics/images, ligatures/font-weight
