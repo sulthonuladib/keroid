@@ -75,12 +75,12 @@ fun ConnectionsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                state.libraryError?.let { item { ErrorCard(it) } }
+                state.libraryError?.let { item(key = "library-error", contentType = "error") { ErrorCard(it) } }
                 if (tab == 0) {
-                    if (state.machines.isEmpty()) item {
+                    if (state.machines.isEmpty()) item(key = "empty-machines", contentType = "empty") {
                         EmptyConnections("No machines saved", "Machines appear here once you add one.")
                     }
-                    items(state.machines, key = { it.id }) { machine ->
+                    items(state.machines, key = { it.id }, contentType = { "machine" }) { machine ->
                         val connection = state.connection(machine.id)
                         val identity = state.identities.firstOrNull { it.id == machine.identityId }
                         SettingsRow(
@@ -102,10 +102,10 @@ fun ConnectionsScreen(
                         )
                     }
                 } else {
-                    if (state.identities.isEmpty()) item {
+                    if (state.identities.isEmpty()) item(key = "empty-identities", contentType = "empty") {
                         EmptyConnections("No identities saved", "Add a private key once and reuse it across machines.")
                     }
-                    items(state.identities, key = { it.id }) { identity ->
+                    items(state.identities, key = { it.id }, contentType = { "identity" }) { identity ->
                         val count = state.machines.count { it.identityId == identity.id }
                         SettingsRow(
                             onClick = { onIdentity(identity.id) },
@@ -193,8 +193,7 @@ fun MachineEditorScreen(
     var deleting by rememberSaveable { mutableStateOf(false) }
     val enabled = !state.restoring && !state.saving && state.libraryError == null
     val draft = state.draft
-    EditorScaffold(if (existing == null) "Add machine" else "Edit machine", onBack) {
-        if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+    EditorScaffold(if (existing == null) "Add machine" else "Edit machine", onBack, state.saving) {
         OutlinedTextField(value = draft.name, onValueChange = { onDraft(draft.copy(name = it)) },
             label = { Text("Machine name") }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large)
@@ -306,8 +305,7 @@ fun IdentityEditorScreen(
             catch (_: Exception) { onError("Could not import this key. Choose a text private-key file smaller than 128 KiB.") }
         }
     }
-    EditorScaffold(if (existing == null) "Add identity" else "Edit identity", onBack) {
-        if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+    EditorScaffold(if (existing == null) "Add identity" else "Edit identity", onBack, saving) {
         OutlinedTextField(value = name, onValueChange = onName, label = { Text("Identity name") },
             enabled = !saving, singleLine = true, modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large)
@@ -373,12 +371,19 @@ internal fun ConnectionPrompts(state: MainUiState, passphrase: String, onPassphr
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditorScaffold(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+private fun EditorScaffold(title: String, onBack: () -> Unit, saving: Boolean,
+                           content: @Composable ColumnScope.() -> Unit) {
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing,
         topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
-            .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 560.dp)
-            .verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            Column(Modifier.fillMaxSize()
+                .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 560.dp)
+                .verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+            // Feedback overlays a fixed slot; adding a progress row moved every
+            // field (and clamped the scroll position) just before navigating away.
+            if (saving) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+        }
     }
 }
 
@@ -404,14 +409,28 @@ internal fun ErrorCard(message: String) {
     }
 }
 
+// All leases are acquired/released by Compose effects on the UI thread. An
+// outgoing identity entry and an unlock prompt may protect the same window;
+// neither may clear the other's protection or a flag set by an outside owner.
+private class WindowProtection(val wasSecure: Boolean, var owners: Int = 0)
+private val protectedWindows = java.util.WeakHashMap<android.view.Window, WindowProtection>()
+
 @Composable
 internal fun ProtectSecrets(protect: Boolean) {
-    val context = LocalContext.current
-    DisposableEffect(protect) {
-        val window = context.activity()?.window
-        val wasSecure = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
-        if (protect) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (protect && !wasSecure) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    if (!protect) return
+    val window = LocalContext.current.activity()?.window ?: return
+    DisposableEffect(window) {
+        val protection = protectedWindows.getOrPut(window) {
+            WindowProtection(window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+        }
+        if (protection.owners++ == 0 && !protection.wasSecure)
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            if (--protection.owners == 0) {
+                protectedWindows.remove(window)
+                if (!protection.wasSecure) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
     }
 }
 private tailrec fun Context.activity(): Activity? = when (this) {

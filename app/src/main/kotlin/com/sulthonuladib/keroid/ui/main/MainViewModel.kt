@@ -203,7 +203,10 @@ class MainViewModel @Inject constructor(
     fun discardMachineDraft() {
         savedState.remove<String>("draftOwner")
         savedState.remove<String>("machineDraft")
-        _ui.update { it.copy(draft = ConnectionDraft(), editorError = null) }
+        // Remove the saveable draft immediately, but do not blank the outgoing
+        // editor while NavDisplay is still drawing its exit animation. These
+        // values are non-secret; beginMachine initializes the next editor.
+        _ui.update { it.copy(editorError = null) }
     }
 
     fun saveMachine(id: String, onSaved: () -> Unit = {}) {

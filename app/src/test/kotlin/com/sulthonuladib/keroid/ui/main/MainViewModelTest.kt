@@ -54,6 +54,26 @@ class MainViewModelTest {
         assertTrue(factory.clients.isEmpty())
     }
 
+    @Test fun savingDropsRestorableDraftWithoutBlankingTheExitingEditor() = runTest(dispatcher) {
+        val state = SavedStateHandle()
+        val vault = Vault()
+        val vm = vm(vault = vault, state = state)
+        advanceUntilIdle()
+        vm.beginMachine("a")
+        vm.updateDraft(vm.ui.value.draft.copy(name = "Updated fixture"))
+        val outgoing = vm.ui.value.draft
+        vm.saveMachine("a")
+        advanceUntilIdle()
+        assertEquals(outgoing, vm.ui.value.draft)
+        assertFalse(state.keys().contains("draftOwner"))
+        assertFalse(state.keys().contains("machineDraft"))
+        val restored = vm(vault = vault, state = state)
+        advanceUntilIdle()
+        assertEquals(ConnectionDraft(), restored.ui.value.draft)
+        vm.beginMachine("new")
+        assertEquals(ConnectionDraft(), vm.ui.value.draft)
+    }
+
     @Test fun keysPassphrasesAndTerminalInputNeverEnterSavedState() = runTest(dispatcher) {
         val state = SavedStateHandle()
         val vm = vm(state = state)

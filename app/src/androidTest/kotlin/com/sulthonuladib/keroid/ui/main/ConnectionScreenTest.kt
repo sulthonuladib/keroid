@@ -1,6 +1,7 @@
 package com.sulthonuladib.keroid.ui.main
 
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -24,12 +25,14 @@ class ConnectionScreenTest {
 
     private val actionCalls = mutableListOf<String>()
     private var mutationFails = false
+    private var testWindow: android.view.Window? = null
 
-    private fun viewModel(library: ConnectionLibrary = ConnectionLibrary(), initialState: KeroState = KeroState()): MainViewModel {
+    private fun viewModel(library: ConnectionLibrary = ConnectionLibrary(), initialState: KeroState = KeroState(),
+                          beforeSave: () -> Unit = {}): MainViewModel {
         val vault = object : LibraryVault {
             var current = library
             override fun load() = current
-            override fun save(library: ConnectionLibrary) { current = library }
+            override fun save(library: ConnectionLibrary) { beforeSave(); current = library }
         }
         val factory = object : RemoteMachineFactory {
             override fun create(): RemoteMachine = object : RemoteMachine {
@@ -82,8 +85,244 @@ class ConnectionScreenTest {
         }
     }
     private fun start(vm: MainViewModel) {
-        compose.setContent { KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) } }
+        compose.setContent {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            SideEffect {
+                var owner = context
+                while (owner is android.content.ContextWrapper && owner !is android.app.Activity) owner = owner.baseContext
+                testWindow = (owner as android.app.Activity).window
+            }
+            KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) }
+        }
         compose.waitUntil { !vm.ui.value.restoring }
+    }
+
+    @Test fun savedMachineExitsWithoutEditorReappearingOrResetting() = machineSaveTransition(false)
+
+    @Test fun savingDuringEditorEntryNeverFlashesEditorAgain() = machineSaveTransition(true)
+
+    @Test fun saveDoesNotSuperimposeEditorAndDestinationTitles() = machineSaveTransition(false, noBlending = true)
+
+    @Test fun openingEditorDoesNotSuperimposeDestinationTitles() {
+        start(viewModel(actionLibrary()))
+        compose.onNodeWithTag("tab-machines").performClick()
+        compose.waitForIdle()
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithText("Connections").fetchSemanticsNode().boundsInRoot
+        val region = androidx.compose.ui.geometry.Rect(0f, title.top - root.top, root.width, title.bottom - root.top)
+        val before = headerLuma(compose.onRoot().captureToImage().toPixelMap(), region)
+        val frames = mutableListOf<ByteArray>()
+        val overlaps = mutableListOf<Boolean>()
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithContentDescription("Edit Dev").performClick()
+            repeat(60) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                val previous = compose.onAllNodesWithText("Connections").fetchSemanticsNodes()
+                val next = compose.onAllNodesWithText("Edit machine").fetchSemanticsNodes()
+                overlaps += previous.any { old -> next.any { old.boundsInRoot.overlaps(it.boundsInRoot) } }
+                frames += headerLuma(compose.onRoot().captureToImage().toPixelMap(), region)
+            }
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.onNodeWithText("Edit machine").assertExists()
+        assertNoHeaderBlend(before, headerLuma(compose.onRoot().captureToImage().toPixelMap(), region), frames, overlaps)
+    }
+
+    private fun machineSaveTransition(earlySave: Boolean, noBlending: Boolean = false) {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val vm = viewModel(actionLibrary(), beforeSave = { check(gate.await(5, java.util.concurrent.TimeUnit.SECONDS)) })
+        start(vm)
+        compose.onNodeWithTag("tab-machines").performClick()
+        compose.waitForIdle()
+        if (earlySave) compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Edit Dev").performClick()
+        if (earlySave) {
+            repeat(2) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() }
+        }
+        val expectedName = if (earlySave) "Dev" else "Updated fixture"
+        if (!earlySave) compose.onNodeWithText("Machine name").performTextReplacement(expectedName)
+        compose.onNodeWithText("Save machine").performScrollTo()
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        val titleBounds = compose.onNodeWithText("Edit machine").fetchSemanticsNode().boundsInRoot
+        val rootBounds = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val header = androidx.compose.ui.geometry.Rect(0f, titleBounds.top - rootBounds.top,
+            (titleBounds.right - rootBounds.left + 16f).coerceAtMost(rootBounds.width), titleBounds.bottom - rootBounds.top)
+        val beforeHeader = if (noBlending) headerLuma(compose.onRoot().captureToImage().toPixelMap(), header) else null
+        val headerFrames = mutableListOf<ByteArray>()
+        val overlappingTitles = mutableListOf<Boolean>()
+        // This part of the fixture editor title is outside the shorter
+        // destination title. Unlike Save, it has no enabled/pressed color animation.
+        val sampleLeft = (titleBounds.right - titleBounds.width / 3 - rootBounds.left).toInt()
+        val scrollMatcher = hasScrollAction() and hasAnyDescendant(hasText("Save machine"))
+        val editorSize = compose.onNode(scrollMatcher).fetchSemanticsNode().size
+        var resizedDuringExit = false
+        val exitLevels = mutableListOf<Float>()
+        val editorPositions = mutableListOf<Float?>()
+        val frames = mutableListOf<String>()
+        val editorLeft = mutableListOf<Float>()
+        var vanished = false
+        var reappeared = false
+        var reset = false
+        try {
+            compose.runOnIdle { assertEquals(expectedName, vm.ui.value.draft.name) }
+            if (earlySave) {
+                // Exercise an action queued during entrance without pretending
+                // an offscreen sliding button can receive a physical tap.
+                compose.onNode(hasText("Save machine") and hasClickAction())
+                    .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) { it() }
+            } else compose.onNodeWithText("Save machine").performClick()
+            compose.waitUntil(5000) { vm.ui.value.saving }
+            gate.countDown()
+            compose.waitUntil(5000) { !vm.ui.value.saving }
+            repeat(60) { frame ->
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                val titles = compose.onAllNodesWithText("Edit machine").fetchSemanticsNodes()
+                    .filterNot { it.boundsInRoot.isEmpty }
+                editorPositions += titles.firstOrNull()?.boundsInRoot?.left
+                val fields = compose.onAllNodesWithText("Machine name").fetchSemanticsNodes()
+                val outgoingSizes = compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.size }
+                val values = fields.mapNotNull { node ->
+                    if (node.config.contains(androidx.compose.ui.semantics.SemanticsProperties.EditableText))
+                        node.config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text else null
+                }
+                if (titles.isEmpty()) vanished = true else {
+                    if (vanished) reappeared = true
+                    editorLeft += titles.first().boundsInRoot.left
+                }
+                if (values.any { it != expectedName }) reset = true
+                val pixels = compose.onRoot().captureToImage().toPixelMap()
+                if (noBlending) {
+                    val destinationTitles = compose.onAllNodesWithText("Connections").fetchSemanticsNodes()
+                    overlappingTitles += titles.any { old -> destinationTitles.any { old.boundsInRoot.overlaps(it.boundsInRoot) } }
+                    headerFrames += headerLuma(pixels, header)
+                }
+                var level = 0f
+                titles.firstOrNull()?.boundsInRoot?.let { bounds ->
+                    val left = maxOf(sampleLeft, (bounds.left - rootBounds.left).toInt()).coerceIn(0, pixels.width)
+                    val right = (bounds.right - rootBounds.left).toInt().coerceIn(left, pixels.width)
+                    val top = (bounds.top - rootBounds.top).toInt().coerceIn(0, pixels.height)
+                    val bottom = (bounds.bottom - rootBounds.top).toInt().coerceIn(top, pixels.height)
+                    for (y in top until bottom) for (x in left until right) {
+                        val pixel = pixels[x, y]
+                        level = maxOf(level, pixel.red + pixel.green + pixel.blue)
+                    }
+                }
+                exitLevels += level
+                // An interrupted entrance can leave a fully transparent entry
+                // composed briefly. Its clipped bounds are not a visible jump.
+                if (level > 0.4f && outgoingSizes.any { it != editorSize }) resizedDuringExit = true
+                frames += "$frame: editor=${titles.map { it.boundsInRoot }} field=${values.map { "<$it>" }} scroll=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.boundsInRoot }} expectedSize=$editorSize exit=${exitLevels.last()} previous=${compose.onAllNodesWithText("Connections").fetchSemanticsNodes().map { it.boundsInRoot }}"
+            }
+        } finally {
+            gate.countDown()
+            compose.mainClock.autoAdvance = true
+        }
+        val trace = frames.joinToString("\n")
+        val opacityReversed = (1 until exitLevels.size).any { i ->
+            val previous = editorPositions[i - 1]
+            val current = editorPositions[i]
+            // Translation changes glyph pixel alignment; compare opacity only
+            // at a stationary position. Movement has its own direction check.
+            previous != null && current != null && kotlin.math.abs(current - previous) < 1f &&
+                exitLevels[i] > exitLevels[i - 1] + 0.04f
+        }
+        assertFalse("Editor flashed back during exit:\n$trace", opacityReversed)
+        assertFalse("Editor reappeared after leaving:\n$trace", reappeared)
+        assertTrue("Editor exit reversed direction:\n$trace", editorLeft.zipWithNext().all { (a, b) -> b >= a - 1f })
+        assertFalse("Outgoing editor reset while still visible:\n$trace", reset)
+        assertFalse("Visible outgoing editor resized during exit:\n$trace", resizedDuringExit)
+        compose.onNodeWithText("Connections").assertExists()
+        compose.onNodeWithText(expectedName).assertExists()
+        if (noBlending) assertNoHeaderBlend(beforeHeader!!,
+            headerLuma(compose.onRoot().captureToImage().toPixelMap(), header), headerFrames, overlappingTitles)
+    }
+
+    private fun headerLuma(pixels: androidx.compose.ui.graphics.PixelMap,
+                           region: androidx.compose.ui.geometry.Rect): ByteArray {
+        val left = region.left.toInt()
+        val top = region.top.toInt()
+        val width = region.width.toInt()
+        return ByteArray(width * region.height.toInt()) { i ->
+            val color = pixels[left + i % width, top + i / width]
+            ((color.red + color.green + color.blue) * 85f).toInt().coerceIn(0, 255).toByte()
+        }
+    }
+
+    /** Compare unique title glyphs against their opaque source/destination frames.
+     * A monotonic fade can still ghost both screens together (the reported bug).
+     * Side-by-side sliding titles are allowed; blended, overlapping titles are not. */
+    private fun assertNoHeaderBlend(before: ByteArray, after: ByteArray,
+                                    frames: List<ByteArray>, overlaps: List<Boolean>) {
+        fun ByteArray.luma(i: Int) = this[i].toInt() and 255
+        val oldGlyphs = before.indices.filter { before.luma(it) > 190 && after.luma(it) < 70 }
+        val newGlyphs = before.indices.filter { after.luma(it) > 190 && before.luma(it) < 70 }
+        assertTrue("Fixture must have distinct title glyphs", oldGlyphs.size > 20 && newGlyphs.size > 20)
+        val oldContrast = oldGlyphs.sumOf { (before.luma(it) - after.luma(it)).toDouble() }
+        val newContrast = newGlyphs.sumOf { (after.luma(it) - before.luma(it)).toDouble() }
+        val blended = frames.indices.filter { index ->
+            if (!overlaps[index]) return@filter false
+            val frame = frames[index]
+            val oldStrength = oldGlyphs.sumOf { (frame.luma(it) - after.luma(it)).toDouble() } / oldContrast
+            val newStrength = newGlyphs.sumOf { (frame.luma(it) - before.luma(it)).toDouble() } / newContrast
+            oldStrength > 0.18 && newStrength > 0.18
+        }
+        assertTrue("Editor and saved-list titles are superimposed at animation frames $blended", blended.isEmpty())
+    }
+
+    @Test fun newIdentityKeepsItsEditorShapeUntilTheSaveTransitionEnds() = identitySaveTransition(true)
+
+    @Test fun savedIdentityKeepsProtectionThroughExit() = identitySaveTransition(false)
+
+    private fun identitySaveTransition(newIdentity: Boolean) {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val vm = viewModel(if (newIdentity) ConnectionLibrary() else actionLibrary(),
+            beforeSave = { check(gate.await(5, java.util.concurrent.TimeUnit.SECONDS)) })
+        start(vm)
+        compose.onNodeWithTag("tab-machines").performClick()
+        compose.onNodeWithText("Identities").performClick()
+        compose.waitForIdle()
+        if (newIdentity) compose.onNodeWithText("Add identity", useUnmergedTree = true).performClick()
+        else compose.onNodeWithText("Work").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Identity name").performTextReplacement("Synthetic identity")
+        if (newIdentity) compose.onNodeWithText("Private key").performTextInput("test-only-key")
+        compose.onNodeWithText("Save identity").performScrollTo()
+        compose.waitForIdle()
+        val scrollMatcher = hasScrollAction() and hasAnyDescendant(hasText("Save identity"))
+        val before = compose.onNode(scrollMatcher).fetchSemanticsNode().size
+        var changedMode = false
+        var resized = false
+        var unprotectedDuringExit = false
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithText("Save identity").performClick()
+            compose.waitUntil(5000) { vm.ui.value.saving }
+            gate.countDown()
+            compose.waitUntil(5000) { !vm.ui.value.saving }
+            repeat(60) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                if (newIdentity && compose.onAllNodesWithText("Edit identity").fetchSemanticsNodes().isNotEmpty()) changedMode = true
+                val editors = compose.onAllNodes(scrollMatcher).fetchSemanticsNodes()
+                if (editors.any { it.size != before }) resized = true
+                if (editors.isNotEmpty()) compose.runOnIdle {
+                    if (testWindow!!.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE == 0)
+                        unprotectedDuringExit = true
+                }
+            }
+        } finally {
+            gate.countDown()
+            compose.mainClock.autoAdvance = true
+        }
+        assertFalse("Outgoing Add identity flashed as Edit identity after commit", changedMode)
+        assertFalse("Destination tabs resized the outgoing identity editor", resized)
+        assertFalse("FLAG_SECURE was toggled off while the identity editor was still drawing", unprotectedDuringExit)
+        compose.onNodeWithText("Connections").assertExists()
+        compose.onNodeWithText("Synthetic identity").assertExists()
+        assertTrue("Private key must still be cleared immediately", vm.privateKey.value.isEmpty())
     }
 
     @Test fun openProjectBrowsesRemoteFoldersAndNavigatesToCreatedSession() {
