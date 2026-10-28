@@ -87,6 +87,7 @@ fun TerminalView(
         ?: MaterialTheme.colorScheme.surfaceContainerLowest,
     fitToScreen: Boolean = false,
     pan: Offset = Offset.Zero,
+    bottomOcclusion: () -> Int = { 0 },
     onPanClamped: (Offset) -> Unit = {},
     onTap: () -> Unit = {},
     onGrid: ((cols: Int, rows: Int, cellWidth: Int, cellHeight: Int) -> Unit)? = null,
@@ -128,12 +129,15 @@ fun TerminalView(
         }
     }
 
-    val viewport = terminalViewport(
-        viewSize.width.toFloat(), viewSize.height.toFloat(),
-        renderer.cols * metrics.width, renderer.rows * metrics.height, fitToScreen, pan,
-    )
-    LaunchedEffect(viewport.offset, viewSize, renderer) {
-        if (viewSize.width > 0 && viewSize.height > 0 && renderer.cols > 0) onPanClamped(viewport.offset)
+    // Read dock clearance in Draw / pointer handling, and when a settled
+    // geometry request reserves rows; never in composition. Layout publishes it
+    // before this frame is drawn.
+    val viewport = {
+        terminalViewport(
+            viewSize.width.toFloat(), viewSize.height.toFloat(),
+            renderer.cols * metrics.width, renderer.rows * metrics.height, fitToScreen, pan,
+            bottomOcclusion().toFloat(),
+        )
     }
 
     val density = LocalDensity.current
@@ -142,6 +146,8 @@ fun TerminalView(
     // Ask for the grid the phone fits. The screen only changes when the daemon
     // answers with a resize frame, so the program's output is never laid out at a
     // size the daemon did not use.
+    val currentOnGrid by rememberUpdatedState(onGrid)
+    val currentOcclusion by rememberUpdatedState(bottomOcclusion)
     LaunchedEffect(viewSize, metrics, imeSettled) {
         if (!imeSettled) return@LaunchedEffect
         if (viewSize.width <= 0 || viewSize.height <= 0) return@LaunchedEffect
@@ -150,8 +156,12 @@ fun TerminalView(
         // the local mirror still resizes exclusively on welcome/'z'.
         delay(160)
         val cols = (viewSize.width / metrics.width).toInt().coerceAtLeast(1)
-        val rows = (viewSize.height / metrics.height).toInt().coerceAtLeast(1)
-        onGrid?.invoke(cols, rows, ceil(metrics.width).toInt(), ceil(metrics.height).toInt())
+        // The floating keys overlay the canvas, so a grid that spans the whole
+        // canvas hides its last row (the cursor) behind them. Reserve the dock
+        // height plus one row: the live row then stays visible, and a dock that
+        // folds open by less than a row cannot renegotiate the grid.
+        val rows = terminalRows(viewSize.height.toFloat(), metrics.height, currentOcclusion().toFloat())
+        currentOnGrid?.invoke(cols, rows, ceil(metrics.width).toInt(), ceil(metrics.height).toInt())
     }
 
     val clipboard = LocalClipboard.current
@@ -169,7 +179,7 @@ fun TerminalView(
         .pointerInput(session) { detectTapGestures(onTap = { currentTap() }) }
         .pointerInput(session, metrics) {
             fun selectAt(point: Offset, start: Boolean) {
-                val vp = currentViewport
+                val vp = currentViewport()
                 val grid = currentRenderer
                 if (grid.cols == 0 || grid.rows == 0) return
                 val x = ((point.x - vp.offset.x) / (metrics.width * vp.scale)).toInt().coerceIn(0, grid.cols - 1)
@@ -185,7 +195,7 @@ fun TerminalView(
             var remainder = 0f
             detectDragGestures(onDragStart = { remainder = 0f }) { change, delta ->
                 change.consume()
-                val vp = currentViewport
+                val vp = currentViewport()
                 val grid = currentRenderer
                 // Pan oversized rows into view before entering history. Once in
                 // history, both directions navigate it; horizontal drag always pans.
@@ -195,8 +205,8 @@ fun TerminalView(
                     val rows = remainder.toInt()
                     if (rows != 0) { session.clearSelection(); session.scroll(rows); remainder -= rows }
                 }
-                if (!fitToScreen) currentPan(Offset(vp.offset.x + delta.x,
-                    if (history) vp.offset.y else vp.offset.y + delta.y))
+                if (!fitToScreen) currentPan(vp.panForOffset(Offset(vp.offset.x + delta.x,
+                    if (history) vp.offset.y else vp.offset.y + delta.y)))
             }
         }) {
         if (renderer.cols == 0 || renderer.rows == 0) return@Canvas
@@ -204,11 +214,13 @@ fun TerminalView(
         val cellHeight = metrics.height
         if (cellWidth <= 0f || cellHeight <= 0f) return@Canvas
         // Readable cells by default; fitting/panning never changes the VT grid.
-        clipRect {
+        val viewport = viewport()
+        val visibleHeight = (size.height - bottomOcclusion()).coerceAtLeast(0f)
+        clipRect(bottom = visibleHeight) {
             translate(viewport.offset.x, viewport.offset.y) {
                 scale(scaleX = viewport.scale, scaleY = viewport.scale, pivot = Offset.Zero) {
                     val first = (-viewport.offset.y / (cellHeight * viewport.scale)).toInt().coerceAtLeast(0)
-                    val last = ceil((viewSize.height - viewport.offset.y) / (cellHeight * viewport.scale)).toInt().coerceAtMost(renderer.rows)
+                    val last = ceil((visibleHeight - viewport.offset.y) / (cellHeight * viewport.scale)).toInt().coerceAtMost(renderer.rows)
                     drawGrid(renderer, measurer, style, cellWidth, cellHeight, first, last)
                 }
             }

@@ -83,7 +83,14 @@ they never directly resize the local VT.
 - Geometry requests wait for settled IME animation and a short quiet period.
   Use `WindowInsets.isImeVisible`, not bottom-inset height, for keyboard state.
   The floating key dock never changes canvas bounds or renegotiates the grid;
-  handle occlusion through viewport transforms.
+  handle occlusion through viewport transforms. `TerminalDockLayout` measures
+  the dock first and supplies clearance read only by drawing/pointer handling.
+  The requested rows reserve the dock height plus one clear row, so the live
+  cursor is never hidden behind the keys and folding the dock open by less than
+  a row keeps the same grid. A grid still larger than the unobscured area (a
+  desktop-owned size, or a resize the daemon has not confirmed yet) follows its
+  live bottom row; panning stays relative to that alignment. Fit mode uses the
+  unobscured height. None of these change shared-grid measurement.
 
 `TerminalSizingTest`, `TerminalEventQueueTest` and `PaneScreenTest` encode these
 contracts; preserve them when changing layout.
