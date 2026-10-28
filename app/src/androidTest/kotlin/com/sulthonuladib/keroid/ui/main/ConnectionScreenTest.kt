@@ -84,6 +84,21 @@ class ConnectionScreenTest {
             this.appearance.value = appearance
         }
     }
+    /**
+     * Window size and insets. A queued IME show or an inset handover between the
+     * outgoing and incoming entries can legitimately reflow the outgoing screen
+     * once; only destination-driven changes are a regression.
+     */
+    private fun windowSignature(): String {
+        val window = testWindow ?: return ""
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(window.decorView)
+            ?: return "${window.decorView.width}x${window.decorView.height}"
+        val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+            androidx.core.view.WindowInsetsCompat.Type.ime())
+        return "${window.decorView.width}x${window.decorView.height}:" +
+            "${bars.left},${bars.top},${bars.right},${bars.bottom}"
+    }
+
     private fun start(vm: MainViewModel) {
         compose.setContent {
             val context = androidx.compose.ui.platform.LocalContext.current
@@ -156,7 +171,10 @@ class ConnectionScreenTest {
         // destination title. Unlike Save, it has no enabled/pressed color animation.
         val sampleLeft = (titleBounds.right - titleBounds.width / 3 - rootBounds.left).toInt()
         val scrollMatcher = hasScrollAction() and hasAnyDescendant(hasText("Save machine"))
-        val editorSize = compose.onNode(scrollMatcher).fetchSemanticsNode().size
+        // Geometry the entry leaves with; a resize anywhere later in the exit is
+        // the regression this guards.
+        var editorSize: androidx.compose.ui.unit.IntSize? = null
+        var insets = windowSignature()
         var resizedDuringExit = false
         val exitLevels = mutableListOf<Float>()
         val editorPositions = mutableListOf<Float?>()
@@ -184,6 +202,14 @@ class ConnectionScreenTest {
                 editorPositions += titles.firstOrNull()?.boundsInRoot?.left
                 val fields = compose.onAllNodesWithText("Machine name").fetchSemanticsNodes()
                 val outgoingSizes = compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.size }
+                val frameInsets = windowSignature()
+                if (frameInsets != insets) {
+                    insets = frameInsets
+                    outgoingSizes.firstOrNull()?.let { editorSize = it }
+                } else if (outgoingSizes.isNotEmpty()) {
+                    // Take the exit's own geometry, then hold it for every frame.
+                    editorSize = editorSize ?: outgoingSizes.first()
+                }
                 val values = fields.mapNotNull { node ->
                     if (node.config.contains(androidx.compose.ui.semantics.SemanticsProperties.EditableText))
                         node.config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text else null
@@ -213,8 +239,9 @@ class ConnectionScreenTest {
                 exitLevels += level
                 // An interrupted entrance can leave a fully transparent entry
                 // composed briefly. Its clipped bounds are not a visible jump.
-                if (level > 0.4f && outgoingSizes.any { it != editorSize }) resizedDuringExit = true
-                frames += "$frame: editor=${titles.map { it.boundsInRoot }} field=${values.map { "<$it>" }} scroll=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.boundsInRoot }} expectedSize=$editorSize exit=${exitLevels.last()} previous=${compose.onAllNodesWithText("Connections").fetchSemanticsNodes().map { it.boundsInRoot }}"
+                if (level > 0.4f && outgoingSizes.any { editorSize != null && it != editorSize })
+                    resizedDuringExit = true
+                frames += "$frame: editor=${titles.map { it.boundsInRoot }} field=${values.map { "<$it>" }} sizes=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.size }} bounds=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.boundsInRoot }} insets=$insets expectedSize=$editorSize exit=${exitLevels.last()} previous=${compose.onAllNodesWithText("Connections").fetchSemanticsNodes().map { it.boundsInRoot }}"
             }
         } finally {
             gate.countDown()
@@ -290,9 +317,9 @@ class ConnectionScreenTest {
         compose.onNodeWithText("Identity name").performTextReplacement("Synthetic identity")
         if (newIdentity) compose.onNodeWithText("Private key").performTextInput("test-only-key")
         compose.onNodeWithText("Save identity").performScrollTo()
-        compose.waitForIdle()
         val scrollMatcher = hasScrollAction() and hasAnyDescendant(hasText("Save identity"))
-        val before = compose.onNode(scrollMatcher).fetchSemanticsNode().size
+        var before: androidx.compose.ui.unit.IntSize? = null
+        var insets = windowSignature()
         var changedMode = false
         var resized = false
         var unprotectedDuringExit = false
@@ -307,7 +334,14 @@ class ConnectionScreenTest {
                 compose.waitForIdle()
                 if (newIdentity && compose.onAllNodesWithText("Edit identity").fetchSemanticsNodes().isNotEmpty()) changedMode = true
                 val editors = compose.onAllNodes(scrollMatcher).fetchSemanticsNodes()
-                if (editors.any { it.size != before }) resized = true
+                val frameInsets = windowSignature()
+                if (frameInsets != insets) {
+                    insets = frameInsets
+                    editors.firstOrNull()?.let { before = it.size }
+                } else if (editors.isNotEmpty()) {
+                    before = before ?: editors.first().size
+                }
+                if (editors.any { node -> before != null && node.size != before }) resized = true
                 if (editors.isNotEmpty()) compose.runOnIdle {
                     if (testWindow!!.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE == 0)
                         unprotectedDuringExit = true
