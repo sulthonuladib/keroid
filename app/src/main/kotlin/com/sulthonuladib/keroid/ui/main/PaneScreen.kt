@@ -74,7 +74,7 @@ fun PaneScreen(
     var measuredGrid by remember(term) { mutableStateOf<TerminalGeometry?>(null) }
     var fitToScreen by rememberSaveable(machineId, session?.id) { mutableStateOf(false) }
     var keysOpen by rememberSaveable(machineId, session?.id) { mutableStateOf(false) }
-    var ctrl by rememberSaveable(machineId, session?.id) { mutableStateOf(false) }
+    var ctrl by remember(target) { mutableStateOf(false) }
     var inputContext by remember(target) { mutableIntStateOf(0) }
     var showKeyboard by remember(target) { mutableIntStateOf(0) }
     var panX by rememberSaveable(target) { mutableFloatStateOf(0f) }
@@ -226,11 +226,22 @@ fun PaneScreen(
                 val terminalFamily = remember(terminalAppearance.font) {
                     terminalFontFamily(terminalAppearance.font)
                 }
-                Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-canvas")) {
+                TerminalDockLayout(Modifier.weight(1f).fillMaxWidth().testTag("terminal-canvas"), dock = {
+                    key(target) {
+                        TerminalKeyBar(expanded = keysOpen, onToggle = { keysOpen = !keysOpen },
+                            ctrl = ctrl, onCtrl = { ctrl = it },
+                            onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } },
+                            onKey = { key ->
+                                inputContext++
+                                term.key(key) { onTerminalInput(target, it) }
+                            },
+                            modifier = Modifier.padding(8.dp))
+                    }
+                }) { bottomOcclusion ->
                     TerminalView(session = term, modifier = Modifier.padding(2.dp),
                         fontFamily = terminalFamily, fontSize = terminalAppearance.fontSize.sp,
                         lineHeight = terminalAppearance.lineHeightSp.sp, theme = terminalTheme,
-                        fitToScreen = fitToScreen, pan = Offset(panX, panY),
+                        fitToScreen = fitToScreen, pan = Offset(panX, panY), bottomOcclusion = bottomOcclusion,
                         onPanClamped = { panX = it.x; panY = it.y }, onTap = { showKeyboard++ },
                         onGrid = { cols, rows, cw, ch ->
                             onTerminalResize(target, cols, rows, cw, ch)
@@ -239,16 +250,7 @@ fun PaneScreen(
                     TerminalInputLayer(ctrl = ctrl, resetContext = inputContext, showKeyboard = showKeyboard,
                         onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } }, onCtrlUsed = { ctrl = false },
                         onKey = { key -> term.key(key) { onTerminalInput(target, it) } },
-                        modifier = Modifier.matchParentSize())
-                    // Overlay only: opening this never changes the requested grid.
-                    TerminalKeyBar(expanded = keysOpen, onToggle = { keysOpen = !keysOpen },
-                        ctrl = ctrl, onCtrl = { ctrl = it },
-                        onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } },
-                        onKey = { key ->
-                            inputContext++
-                            term.key(key) { onTerminalInput(target, it) }
-                        },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                        modifier = Modifier.fillMaxSize())
                 }
             } else {
                 Text(if (terminalEnded) "Terminal closed · text snapshot" else "Text snapshot",

@@ -1,6 +1,8 @@
 package com.sulthonuladib.keroid
 
 import android.content.pm.ApplicationInfo
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,6 +16,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
@@ -26,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -39,14 +44,16 @@ import com.sulthonuladib.keroid.ui.settings.TerminalThemePickerScreen
 import com.sulthonuladib.keroid.term.GhosttyTerminal
 import com.sulthonuladib.keroid.term.TerminalProbeScreen
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
+    val navigationMotion = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val backStack = rememberNavBackStack(Main)
     val state by viewModel.ui.collectAsStateWithLifecycle()
     val key by viewModel.privateKey.collectAsStateWithLifecycle()
     val passphrase by viewModel.passphrase.collectAsStateWithLifecycle()
     val active = backStack.lastOrNull()
-    ProtectSecrets(active is IdentityEditor || state.unlock != null)
+    ProtectSecrets(state.unlock != null)
     LaunchedEffect(active) {
         if (active !is IdentityEditor) viewModel.discardIdentityDraft()
     }
@@ -138,6 +145,20 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
         backStack = backStack,
         modifier = Modifier.weight(1f),
         onBack = back,
+        // Keep each destination opaque: cross-fading complete forms superimposes
+        // their text and looks like the editor flashing back over the saved list.
+        transitionSpec = {
+            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navigationMotion) togetherWith
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navigationMotion)
+        },
+        popTransitionSpec = {
+            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navigationMotion) togetherWith
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navigationMotion)
+        },
+        predictivePopTransitionSpec = {
+            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navigationMotion) togetherWith
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navigationMotion)
+        },
         entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator()),
         entryProvider = entryProvider {
             entry<Main> {
@@ -193,13 +214,23 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
             }
             entry<MachineEditor> { route ->
                 LaunchedEffect(route.machineId, state.restoring) { if (!state.restoring) viewModel.beginMachine(route.machineId) }
-                MachineEditorScreen(state, state.machines.firstOrNull { it.id == route.machineId },
+                // A save publishes the new library before this entry finishes
+                // exiting. Do not turn Add into Edit halfway through that exit.
+                val existing = remember(route.machineId, state.restoring) {
+                    state.machines.firstOrNull { it.id == route.machineId }
+                }
+                MachineEditorScreen(state, existing,
                     viewModel::updateDraft, back, onAddIdentity = { editIdentity(null) },
                     onSave = { viewModel.saveMachine(route.machineId) { if (backStack.lastOrNull() == route) backStack.removeLastOrNull() } },
                     onDelete = { viewModel.deleteMachine(route.machineId) { if (backStack.lastOrNull() == route) backStack.removeLastOrNull() } })
             }
             entry<IdentityEditor> { route ->
-                val existing = state.identities.firstOrNull { it.id == route.identityId }
+                // NavDisplay keeps this entry composed throughout its exit.
+                // Keep the window protected for exactly that visible lifetime.
+                ProtectSecrets(true)
+                val existing = remember(route.identityId, state.restoring) {
+                    state.identities.firstOrNull { it.id == route.identityId }
+                }
                 var name by rememberSaveable(route.identityId) { mutableStateOf(existing?.name.orEmpty()) }
                 var nameInitialized by rememberSaveable(route.identityId) { mutableStateOf(existing != null || !state.restoring) }
                 // Load the initial name once, but don't replace an intentionally blank draft.

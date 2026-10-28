@@ -74,9 +74,14 @@ fun TerminalProbeScreen(
                 TextButton(onClick = { session.offer("\u001bc".toByteArray()) }) { Text("Clear") }
                 TextButton(onClick = { session.scrollToBottom(); pan = Offset.Zero }) { Text("Live") }
             }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            TerminalDockLayout(Modifier.weight(1f).fillMaxWidth(), dock = {
+                if (GhosttyTerminal.available) TerminalKeyBar(keys, { keys = !keys }, ctrl, { ctrl = it },
+                    { session.input(it, input) }, Modifier.padding(8.dp),
+                    onKey = { inputContext++; session.key(it, input) })
+            }) { bottomOcclusion ->
                 if (GhosttyTerminal.available) {
-                    TerminalView(session, fitToScreen = false, pan = pan, onPanClamped = { pan = it }, onTap = { showKeyboard++ },
+                    TerminalView(session, fitToScreen = false, pan = pan, bottomOcclusion = bottomOcclusion,
+                        onPanClamped = { pan = it }, onTap = { showKeyboard++ },
                         fontFamily = terminalFontFamily(appearance.font),
                         fontSize = appearance.fontSize.sp,
                         lineHeight = appearance.lineHeightSp.sp,
@@ -87,11 +92,8 @@ fun TerminalProbeScreen(
                             // Fake daemon confirmation. Only this adopts local geometry.
                             session.adoptSize(cols, rows)
                         })
-                    TerminalInputLayer(ctrl, { session.input(it, input) }, { ctrl = false }, Modifier.matchParentSize(),
+                    TerminalInputLayer(ctrl, { session.input(it, input) }, { ctrl = false }, Modifier.fillMaxSize(),
                         resetContext = inputContext, showKeyboard = showKeyboard, onKey = { session.key(it, input) })
-                    TerminalKeyBar(keys, { keys = !keys }, ctrl, { ctrl = it },
-                        { session.input(it, input) }, Modifier.align(Alignment.BottomEnd).padding(8.dp),
-                        onKey = { inputContext++; session.key(it, input) })
                 } else Text(GhosttyTerminal.unavailableReason ?: "Native library missing", Modifier.padding(24.dp))
             }
         }

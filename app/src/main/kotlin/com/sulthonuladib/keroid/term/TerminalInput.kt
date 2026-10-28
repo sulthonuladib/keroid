@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -34,7 +33,6 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -196,10 +194,9 @@ private fun deliverImeEdit(bytes: ByteArray, ctrl: Boolean, text: (ByteArray) ->
 }
 
 /**
- * Rex-inspired floating dock: one compact row above the IME, a standalone modifier
- * circle on the left, one rounded group of navigation keys that scrolls sideways,
- * and an independent keyboard toggle plus collapse circle on the right. Expanding
- * never reserves layout height, so it cannot resize the shared grid.
+ * One floating row: Esc / Ctrl / Tab stay pinned while navigation and editing
+ * keys scroll independently. TerminalDockLayout reserves renderer-only clearance;
+ * expanding never changes the shared grid's measured geometry.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -215,13 +212,21 @@ fun TerminalKeyBar(
     val keyboard = LocalSoftwareKeyboardController.current
     // Floating IMEs can be visible with a zero bottom inset.
     val keyboardVisible = WindowInsets.isImeVisible
-    var shift by rememberSaveable { mutableStateOf(false) }
-    var alt by rememberSaveable { mutableStateOf(false) }
+    var shift by remember { mutableStateOf(false) }
+    var alt by remember { mutableStateOf(false) }
     val press: (TerminalKey) -> Unit = { key ->
         if (onKey == null) onBytes(key.fallback) else {
             val mods = (if (ctrl) TerminalKeyStroke.CTRL else 0) or
                 (if (shift) TerminalKeyStroke.SHIFT else 0) or (if (alt) TerminalKeyStroke.ALT else 0)
             val stroke = TerminalKeyStroke(key.code, mods)
+            onKey(stroke); onKey(stroke.copy(action = 0))
+        }
+        onCtrl(false); shift = false; alt = false
+    }
+    val control: (Char) -> Unit = { letter ->
+        if (onKey == null) onBytes(TerminalKeys.control(letter)) else {
+            val stroke = TerminalKeyStroke(AndroidKeyEvent.KEYCODE_A + (letter.lowercaseChar() - 'a'),
+                TerminalKeyStroke.CTRL, letter.lowercaseChar().toString(), letter.lowercaseChar().code)
             onKey(stroke); onKey(stroke.copy(action = 0))
         }
         onCtrl(false); shift = false; alt = false
@@ -244,16 +249,16 @@ fun TerminalKeyBar(
         } else {
             Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                DockKey("Esc", "Escape", onClick = { press(TerminalKey.Escape) })
                 CircleDockKey("Ctrl", "Control", ctrl) { onCtrl(!ctrl) }
-                // One rounded group: navigation first, then less-used keys snap-scroll.
+                DockKey("Tab", "Tab", onClick = { press(TerminalKey.Tab) })
+                // Only this group scrolls; essential keys and controls stay put.
                 val scroll = rememberLazyListState()
                 val snap = rememberSnapFlingBehavior(lazyListState = scroll)
                 val keys = listOf(
-                    DockKeySpec("Esc", "Escape") { press(TerminalKey.Escape) },
-                    DockKeySpec("Tab", "Tab") { press(TerminalKey.Tab) },
-                    DockKeySpec("↑", "Arrow up") { press(TerminalKey.Up) },
-                    DockKeySpec("↓", "Arrow down") { press(TerminalKey.Down) },
                     DockKeySpec("←", "Arrow left") { press(TerminalKey.Left) },
+                    DockKeySpec("↓", "Arrow down") { press(TerminalKey.Down) },
+                    DockKeySpec("↑", "Arrow up") { press(TerminalKey.Up) },
                     DockKeySpec("→", "Arrow right") { press(TerminalKey.Right) },
                     DockKeySpec("↵", "Enter") { press(TerminalKey.Enter) },
                     DockKeySpec("Shift", "Shift", selected = shift) { shift = !shift },
@@ -264,6 +269,11 @@ fun TerminalKeyBar(
                     DockKeySpec("PgDn", "Page down") { press(TerminalKey.PageDown) },
                     DockKeySpec("Del", "Delete") { press(TerminalKey.Delete) },
                     DockKeySpec("⌫", "Backspace") { press(TerminalKey.Backspace) },
+                    DockKeySpec("C-c", "Control C") { control('c') },
+                    DockKeySpec("C-r", "Control R") { control('r') },
+                    DockKeySpec("C-w", "Control W") { control('w') },
+                    DockKeySpec("C-u", "Control U") { control('u') },
+                    DockKeySpec("C-k", "Control K") { control('k') },
                 )
                 Box(Modifier.weight(1f)) {
                     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
@@ -273,7 +283,7 @@ fun TerminalKeyBar(
                             LazyRow(state = scroll, flingBehavior = snap,
                                 contentPadding = PaddingValues(horizontal = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                items(keys.size, key = { keys[it].description }) { index ->
+                                items(keys.size, key = { keys[it].description }, contentType = { "terminal-key" }) { index ->
                                     val key = keys[index]
                                     DockKey(key.label, key.description, selected = key.selected, onClick = key.onClick)
                                 }
