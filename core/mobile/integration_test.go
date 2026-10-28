@@ -79,6 +79,9 @@ func startTestSSH(t *testing.T) *testSSHServer {
 					return
 				}
 				defer server.Close()
+				// Only SSH negotiation is bounded. Long-lived control/attach
+				// streams must not inherit the test server's handshake deadline.
+				conn.SetDeadline(time.Time{})
 				go ssh.DiscardRequests(requests)
 				for channel := range channels {
 					if channel.ChannelType() != "session" {
@@ -312,6 +315,26 @@ func TestUnknownAndChangedHostNeverAuthenticate(t *testing.T) {
 				t.Fatalf("authenticated %d times before host approval", got)
 			}
 		})
+	}
+}
+
+// Exercises the real TCP -> SSH -> compressed mux path past the production
+// startup deadline. A shorter request-only round trip cannot catch this bug.
+func TestSSHConnectionSurvivesStartupDeadline(t *testing.T) {
+	s := startTestSSH(t)
+	observer := &testObserver{events: make(chan string, 10), closed: make(chan string, 10)}
+	client := NewClient(observer)
+	defer client.Close()
+	if _, err := client.Connect(s.configuration(ssh.FingerprintSHA256(s.hostKey.PublicKey())), s.identity, ""); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case message := <-observer.closed:
+		t.Fatalf("established SSH connection closed at the startup deadline: %s", message)
+	case <-time.After(21 * time.Second):
+	}
+	if _, err := client.Call("read", `{"id":"pane"}`); err != nil {
+		t.Fatalf("control stream must remain usable after startup: %v", err)
 	}
 }
 

@@ -189,7 +189,17 @@ func (c *Client) connectSSH(cfg config, privateKey, passphrase string) (string, 
 		return "", fmt.Errorf("cannot start Kero bridge: %w", err)
 	}
 	transport := &bridge{Reader: stdout, Writer: stdin, close: sess.Close}
-	return c.handshake(transport, "Kero bridge")
+	host, err := c.handshake(transport, "Kero bridge")
+	if err != nil {
+		return "", err
+	}
+	// This deadline bounds discovery and protocol startup, not the lifetime
+	// of the authenticated SSH/mux connection. Leaving it armed disconnects
+	// every healthy machine 20 seconds after starting the bridge.
+	if err = tcp.SetDeadline(time.Time{}); err != nil {
+		return "", err
+	}
+	return host, nil
 }
 
 // handshake negotiates the mux over an established transport and opens the
