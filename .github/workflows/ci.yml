@@ -1,7 +1,9 @@
 name: CI
 on:
+  # Protected by the push run on main; pull requests already cover every branch.
+  # Watching all branches here as well ran each commit twice per pull request.
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,7 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Group a pull request with its head branch so a new push cancels the run it
+  # supersedes instead of queueing another 20 minute emulator job.
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
