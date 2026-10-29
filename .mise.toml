@@ -1,8 +1,8 @@
 [tools]
 java = "temurin-17.0.21+9"
 go = "1.27.3"
-# Pinned for scripts/build-ghostty.sh; libghostty-vt requires 0.16.0.
-zig = "0.16.0"
+# Pinned for scripts/build-ghostty.sh; libghostty-vt requires 0.17.0.
+zig = "0.17.0"
 
 [env]
 # Android SDK locations for non-Fish contexts: `mise exec`, background jobs,
