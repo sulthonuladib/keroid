@@ -6,7 +6,7 @@
 # app/src/main/jniLibs/<abi>/libkeroid_term.so
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-commit="${GHOSTTY_COMMIT:-befcdfd2c3a1cb24d9ec886e93c95b2b5daa7028}"
+commit="${GHOSTTY_COMMIT:-83fb95624b0439ee660c2679b43b38c8b63769cd}"
 zig="${ZIG:-zig}"
 src="$root/.tools/ghostty/src"
 out="$root/.tools/ghostty"

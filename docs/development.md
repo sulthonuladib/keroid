@@ -29,6 +29,14 @@ For protocol reference, `./scripts/reference-repos.sh` creates `repos/kero`
 at the pinned release. Check an existing clone before running it: the script
 may move its revision. The clone is not an Android build dependency.
 
+### libghostty-vt pin
+
+The native terminal library tracks Ghostty **v1.4.0**
+(`83fb95624b0439ee660c2679b43b38c8b63769cd`) and is built with Zig 0.17.0.
+It is independent of the Kero reference pin. libghostty-vt's C API is still
+pre-1.0, so rebuild the native library and rerun the terminal Android tests
+when moving the pin.
+
 ### Kero reference compatibility
 
 The current reference is **v2.1.24** (`53ee0e29562bb68c85d4d7434c5f91e8d2a3de0d`).
