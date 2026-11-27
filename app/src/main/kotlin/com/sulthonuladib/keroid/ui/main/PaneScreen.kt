@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,8 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LifecycleStartEffect
+import com.sulthonuladib.keroid.data.KeroPane
 import com.sulthonuladib.keroid.data.KeroSession
 import com.sulthonuladib.keroid.term.*
+import com.sulthonuladib.keroid.ui.components.AgentBadge
+import com.sulthonuladib.keroid.ui.components.SessionStatusLabel
+import com.sulthonuladib.keroid.ui.theme.KeroidMono
+import com.sulthonuladib.keroid.ui.theme.keroid
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.filterNotNull
@@ -142,55 +148,74 @@ fun PaneScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            TopAppBar(
-                expandedHeight = 56.dp,
-                title = {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(session?.label ?: "Session ended", maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-                                style = MaterialTheme.typography.titleMedium)
-                            if (pane != null) StatusLabel(pane.status)
-                        }
-                        Text(machineName + if (!connection.connected) " · Disconnected" else "",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall,
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+                }
+                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(session?.label ?: "Session ended", maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                            style = MaterialTheme.typography.titleLarge)
+                        if (pane != null) SessionStatusLabel(pane.status)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(machineName, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("·", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        Text(
+                            session?.dir?.takeIf { it.isNotBlank() } ?: "~",
+                            fontFamily = KeroidMono, fontSize = 10.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Box(Modifier.size(6.dp).background(
+                            if (connection.connected) MaterialTheme.keroid.success else MaterialTheme.colorScheme.outline,
+                            androidx.compose.foundation.shape.CircleShape))
+                        Text(if (connection.connected) "attached" else "disconnected",
+                            maxLines = 1,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (connection.connected) MaterialTheme.keroid.success
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Terminal actions") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("New session") }, enabled = readable && !action.busy,
-                                onClick = { menu = false; onNewSession(target) })
-                            DropdownMenuItem(text = { Text("Split right · new pane tab") }, enabled = readable && !action.busy,
-                                onClick = { split("right") })
-                            DropdownMenuItem(text = { Text("Split down · new pane tab") }, enabled = readable && !action.busy,
-                                onClick = { split("down") })
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Rename session") },
-                                enabled = session != null && connection.connected && !action.busy,
-                                onClick = { menu = false; actionKind = SessionActionKind.Rename.name })
-                            if (session != null && session.panes.size > 1) {
-                                DropdownMenuItem(text = { Text("Close pane") },
-                                    enabled = pane != null && connection.connected && !action.busy,
-                                    onClick = { menu = false; actionPaneId = target.paneId; actionKind = SessionActionKind.ClosePane.name })
-                            }
-                            DropdownMenuItem(text = { Text("Close session") },
-                                enabled = session != null && connection.connected && !action.busy,
-                                onClick = { menu = false; actionKind = SessionActionKind.CloseSession.name })
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text(if (fitToScreen) "Readable size" else "Fit grid to screen") },
-                                onClick = { fitToScreen = !fitToScreen; panX = 0f; panY = 0f; menu = false })
-                            DropdownMenuItem(text = { Text(if (keysOpen) "Hide extra keys" else "Show extra keys") },
-                                onClick = { keysOpen = !keysOpen; menu = false })
+                }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Terminal actions") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("New session") }, enabled = readable && !action.busy,
+                            onClick = { menu = false; onNewSession(target) })
+                        DropdownMenuItem(text = { Text("Split right · new pane tab") }, enabled = readable && !action.busy,
+                            onClick = { split("right") })
+                        DropdownMenuItem(text = { Text("Split down · new pane tab") }, enabled = readable && !action.busy,
+                            onClick = { split("down") })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("Rename session") },
+                            enabled = session != null && connection.connected && !action.busy,
+                            onClick = { menu = false; actionKind = SessionActionKind.Rename.name })
+                        if (session != null && session.panes.size > 1) {
+                            DropdownMenuItem(text = { Text("Close pane") },
+                                enabled = pane != null && connection.connected && !action.busy,
+                                onClick = { menu = false; actionPaneId = target.paneId; actionKind = SessionActionKind.ClosePane.name })
                         }
+                        DropdownMenuItem(text = { Text("Close session") },
+                            enabled = session != null && connection.connected && !action.busy,
+                            onClick = { menu = false; actionKind = SessionActionKind.CloseSession.name })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text(if (fitToScreen) "Readable size" else "Fit grid to screen") },
+                            onClick = { fitToScreen = !fitToScreen; panX = 0f; panY = 0f; menu = false })
+                        DropdownMenuItem(text = { Text(if (keysOpen) "Hide extra keys" else "Show extra keys") },
+                            onClick = { keysOpen = !keysOpen; menu = false })
                     }
-                },
-            )
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
@@ -200,16 +225,32 @@ fun PaneScreen(
             }
             // A single pane needs no tab strip. Multiple panes remain tabs, even
             // when the desktop represents the same session as a split layout.
-            if (session.panes.size > 1) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (session.panes.size > 1) Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     session.panes.forEachIndexed { index, item ->
-                        FilterChip(selected = pane.id == item.id, onClick = { selectedId = item.id },
-                            label = { Text("${index + 1} · ${item.label}", maxLines = 1) })
+                        PaneTab(
+                            label = "${index + 1} · ${item.label}",
+                            status = item.status,
+                            selected = pane.id == item.id,
+                            onClick = { selectedId = item.id },
+                        )
                     }
                 }
-                IconButton(onClick = { split("right") }, enabled = readable && !action.busy) {
-                    Icon(Icons.Outlined.Add, "Add pane")
+                Surface(
+                    onClick = { split("right") },
+                    enabled = readable && !action.busy,
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.keroid.raised,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Add, "Add pane", modifier = Modifier.size(20.dp))
+                    }
                 }
             }
             action.error?.let { ErrorCard(it) }
@@ -226,51 +267,75 @@ fun PaneScreen(
                 val terminalFamily = remember(terminalAppearance.font) {
                     terminalFontFamily(terminalAppearance.font)
                 }
-                TerminalDockLayout(Modifier.weight(1f).fillMaxWidth().testTag("terminal-canvas"), dock = {
-                    key(target) {
-                        TerminalKeyBar(expanded = keysOpen, onToggle = { keysOpen = !keysOpen },
-                            ctrl = ctrl, onCtrl = { ctrl = it },
-                            onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } },
-                            onKey = { key ->
-                                inputContext++
-                                term.key(key) { onTerminalInput(target, it) }
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(terminalTheme.background),
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        TerminalChrome(
+                            pane = pane,
+                            session = session,
+                            grid = measuredGrid,
+                            connected = readable,
+                            theme = terminalTheme,
+                        )
+                        TerminalDockLayout(
+                            Modifier.weight(1f).fillMaxWidth().testTag("terminal-canvas"),
+                            dock = {
+                                key(target) {
+                                    TerminalKeyBar(expanded = keysOpen, onToggle = { keysOpen = !keysOpen },
+                                        ctrl = ctrl, onCtrl = { ctrl = it },
+                                        onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } },
+                                        onKey = { key ->
+                                            inputContext++
+                                            term.key(key) { onTerminalInput(target, it) }
+                                        },
+                                        modifier = Modifier.padding(8.dp))
+                                }
                             },
-                            modifier = Modifier.padding(8.dp))
+                        ) { bottomOcclusion ->
+                            TerminalView(session = term, modifier = Modifier.padding(horizontal = 4.dp),
+                                fontFamily = terminalFamily, fontSize = terminalAppearance.fontSize.sp,
+                                lineHeight = terminalAppearance.lineHeightSp.sp, theme = terminalTheme,
+                                fitToScreen = fitToScreen, pan = Offset(panX, panY), bottomOcclusion = bottomOcclusion,
+                                onPanClamped = { panX = it.x; panY = it.y }, onTap = { showKeyboard++ },
+                                onGrid = { cols, rows, cw, ch ->
+                                    onTerminalResize(target, cols, rows, cw, ch)
+                                    measuredGrid = TerminalGeometry(cols, rows, cw, ch)
+                                })
+                            TerminalInputLayer(ctrl = ctrl, resetContext = inputContext, showKeyboard = showKeyboard,
+                                onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } }, onCtrlUsed = { ctrl = false },
+                                onKey = { key -> term.key(key) { onTerminalInput(target, it) } },
+                                modifier = Modifier.fillMaxSize())
+                        }
                     }
-                }) { bottomOcclusion ->
-                    TerminalView(session = term, modifier = Modifier.padding(2.dp),
-                        fontFamily = terminalFamily, fontSize = terminalAppearance.fontSize.sp,
-                        lineHeight = terminalAppearance.lineHeightSp.sp, theme = terminalTheme,
-                        fitToScreen = fitToScreen, pan = Offset(panX, panY), bottomOcclusion = bottomOcclusion,
-                        onPanClamped = { panX = it.x; panY = it.y }, onTap = { showKeyboard++ },
-                        onGrid = { cols, rows, cw, ch ->
-                            onTerminalResize(target, cols, rows, cw, ch)
-                            measuredGrid = TerminalGeometry(cols, rows, cw, ch)
-                        })
-                    TerminalInputLayer(ctrl = ctrl, resetContext = inputContext, showKeyboard = showKeyboard,
-                        onBytes = { bytes -> term.input(bytes) { onTerminalInput(target, it) } }, onCtrlUsed = { ctrl = false },
-                        onKey = { key -> term.key(key) { onTerminalInput(target, it) } },
-                        modifier = Modifier.fillMaxSize())
                 }
             } else {
                 Text(if (terminalEnded) "Terminal closed · text snapshot" else "Text snapshot",
-                    style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp))
-                SelectionContainer(Modifier.weight(1f)) {
+                    style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
+                SelectionContainer(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 4.dp)) {
                     val snapshotTheme = remember(terminalAppearance, darkTerminal) {
                         terminalAppearance.theme(darkTerminal)
                     }
-                    Box(Modifier.fillMaxSize().background(Color(snapshotTheme.background))
-                        .verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(8.dp)) {
-                        Text(output.text.ifEmpty { if (output.loading) "Reading the pane…" else "No output yet." },
-                            fontFamily = terminalFontFamily(terminalAppearance.font),
-                            fontSize = terminalAppearance.fontSize.sp,
-                            lineHeight = terminalAppearance.lineHeightSp.sp,
-                            color = Color(snapshotTheme.foreground))
+                    Surface(shape = RoundedCornerShape(20.dp), color = Color(snapshotTheme.background),
+                        modifier = Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxSize()
+                            .verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(12.dp)) {
+                            Text(output.text.ifEmpty { if (output.loading) "Reading the pane…" else "No output yet." },
+                                fontFamily = terminalFontFamily(terminalAppearance.font),
+                                fontSize = terminalAppearance.fontSize.sp,
+                                lineHeight = terminalAppearance.lineHeightSp.sp,
+                                color = Color(snapshotTheme.foreground))
+                        }
                     }
                 }
                 OutlinedTextField(value = output.draft, onValueChange = { onInput(target, it) },
                     label = { Text("Send input") }, minLines = 1, maxLines = 3,
-                    enabled = connection.connected && !output.sending, modifier = Modifier.fillMaxWidth(),
+                    enabled = connection.connected && !output.sending,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    shape = RoundedCornerShape(18.dp),
                     trailingIcon = {
                         IconButton(enabled = connection.connected && output.draft.isNotBlank(), onClick = {
                             onSend(target, output.draft + "\r") { onInput(target, "") }
@@ -278,5 +343,74 @@ fun PaneScreen(
                     })
             }
         }
+    }
+}
+
+@Composable
+private fun PaneTab(label: String, status: String, selected: Boolean, onClick: () -> Unit) {
+    val dot = when (status) {
+        "waiting" -> MaterialTheme.keroid.attention
+        "working" -> MaterialTheme.colorScheme.primary
+        "error" -> MaterialTheme.keroid.danger
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.keroid.raised,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(Modifier.size(7.dp).background(dot, androidx.compose.foundation.shape.CircleShape))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+    }
+}
+
+/** 34 dp strip above the grid: agent, path, measured size and attach state. */
+@Composable
+private fun TerminalChrome(
+    pane: KeroPane,
+    session: KeroSession,
+    grid: TerminalGeometry?,
+    connected: Boolean,
+    theme: TerminalTheme,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(34.dp)
+            .background(Color(theme.background))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AgentBadge(pane.agent.ifBlank { session.agent })
+        Text(
+            pane.dir.ifBlank { session.dir }.ifBlank { "~" },
+            fontFamily = KeroidMono,
+            fontSize = 9.5.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "${grid?.cols ?: 80}×${grid?.rows ?: 24}",
+            fontFamily = KeroidMono,
+            fontSize = 9.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Box(Modifier.size(6.dp).background(
+            if (connected) MaterialTheme.keroid.success else MaterialTheme.colorScheme.outline,
+            androidx.compose.foundation.shape.CircleShape))
+        Text(
+            if (connected) "attached" else "offline",
+            fontFamily = KeroidMono,
+            fontSize = 9.sp,
+            color = if (connected) MaterialTheme.keroid.success else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

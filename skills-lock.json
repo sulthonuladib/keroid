@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "material3-audit": {
+      "source": "sulthonuladib/skills",
+      "sourceType": "github",
+      "skillPath": "material3-audit/SKILL.md",
+      "computedHash": "ff5b4500c27add7be088486ecca53ab6399cbcfc60c5408828d61f8dbe879e34"
+    },
+    "material3-components": {
+      "source": "sulthonuladib/skills",
+      "sourceType": "github",
+      "skillPath": "material3-components/SKILL.md",
+      "computedHash": "fc160eef344762cbc247a92f931c9127f056ad690e12ef2d995464028a4a92ed"
+    },
+    "material3-foundation": {
+      "source": "sulthonuladib/skills",
+      "sourceType": "github",
+      "skillPath": "material3-foundation/SKILL.md",
+      "computedHash": "be4adfadb0540dafedc2887037462e47e914b523b667f07d38c8a13952191f1d"
+    }
+  }
+}

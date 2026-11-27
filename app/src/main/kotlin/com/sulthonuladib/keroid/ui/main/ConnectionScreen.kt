@@ -6,11 +6,15 @@ import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -30,11 +35,22 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.sulthonuladib.keroid.data.*
+import com.sulthonuladib.keroid.ui.components.AddFab
+import com.sulthonuladib.keroid.ui.components.CountBadge
+import com.sulthonuladib.keroid.ui.components.DetailBar
+import com.sulthonuladib.keroid.ui.components.CookieTile
+import com.sulthonuladib.keroid.ui.components.GroupDivider
+import com.sulthonuladib.keroid.ui.components.GroupedCard
+import com.sulthonuladib.keroid.ui.components.LargeHeader
+import com.sulthonuladib.keroid.ui.components.SegmentedGroup
+import com.sulthonuladib.keroid.ui.theme.KeroidMono
+import com.sulthonuladib.keroid.ui.theme.keroid
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,120 +63,231 @@ fun ConnectionsScreen(
     onSettings: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Connections") },
-                actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Settings") }
+    val connected = state.machines.count { state.connection(it.id).connected }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 760.dp).fillMaxHeight()) {
+            LargeHeader(
+                title = "Machines",
+                titleTag = "machines-title",
+                subtitle = {
+                    Text(
+                        "${state.machines.size} saved · $connected connected",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 },
             )
-        },
-        floatingActionButton = {
-            if (!state.restoring && state.libraryError == null) ExtendedFloatingActionButton(
-                onClick = { if (tab == 0) onMachine(null) else onIdentity(null) },
-                icon = { Icon(Icons.Outlined.Add, null) },
-                text = { Text(if (tab == 0) "Add machine" else "Add identity") },
+            SegmentedGroup(
+                options = listOf("Machines", "Identities"),
+                counts = listOf(state.machines.size, state.identities.size),
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 760.dp).fillMaxSize()) {
-            PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Machines") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Identities") })
-            }
             LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 112.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 state.libraryError?.let { item(key = "library-error", contentType = "error") { ErrorCard(it) } }
                 if (tab == 0) {
                     if (state.machines.isEmpty()) item(key = "empty-machines", contentType = "empty") {
-                        EmptyConnections("No machines saved", "Machines appear here once you add one.")
+                        EmptyConnections("No machines saved", "Add a machine to open its sessions.")
                     }
-                    items(state.machines, key = { it.id }, contentType = { "machine" }) { machine ->
-                        val connection = state.connection(machine.id)
-                        val identity = state.identities.firstOrNull { it.id == machine.identityId }
-                        SettingsRow(
-                            onClick = { onSelect(machine.id) },
-                            icon = Icons.Outlined.Computer,
-                            title = machine.name,
-                            lines = listOf(
-                                // A tailnet address already carries its port.
-                                if (machine.isTailscale) machine.endpoint
-                                else "${machine.profile().address} · ${machine.port}",
-                                // A Tailscale machine has no identity to be missing.
-                                (if (machine.isTailscale) "Tailscale"
-                                else identity?.name ?: "Missing identity") + " · ${connection.status.label}",
-                            ),
-                            selected = state.selectedMachineId == machine.id,
-                            trailing = {
-                                IconButton(onClick = { onMachine(machine.id) }) { Icon(Icons.Outlined.Edit, "Edit ${machine.name}") }
-                            },
-                        )
+                    val connectedMachines = state.machines.filter { state.connection(it.id).connected }
+                    val savedMachines = state.machines.filterNot { state.connection(it.id).connected }
+                    if (connectedMachines.isNotEmpty()) {
+                        item(key = "connected-label") {
+                            SectionTitle("Connected", connectedMachines.size)
+                        }
+                        items(connectedMachines, key = { "c:${it.id}" }, contentType = { "machine" }) { machine ->
+                            MachineCard(state, machine, onSelect = onSelect, onMachine = onMachine)
+                        }
+                    }
+                    if (savedMachines.isNotEmpty()) {
+                        item(key = "saved-label") { SectionTitle("Saved", savedMachines.size) }
+                        items(savedMachines, key = { "s:${it.id}" }, contentType = { "machine" }) { machine ->
+                            MachineCard(state, machine, onSelect = onSelect, onMachine = onMachine)
+                        }
+                    }
+                    item(key = "trust-note") {
+                        Row(
+                            Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Lock,
+                                null,
+                                Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "Host keys are pinned on first connect.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 } else {
                     if (state.identities.isEmpty()) item(key = "empty-identities", contentType = "empty") {
                         EmptyConnections("No identities saved", "Add a private key once and reuse it across machines.")
                     }
-                    items(state.identities, key = { it.id }, contentType = { "identity" }) { identity ->
-                        val count = state.machines.count { it.identityId == identity.id }
-                        SettingsRow(
-                            onClick = { onIdentity(identity.id) },
-                            icon = Icons.Outlined.Key,
-                            title = identity.name,
-                            lines = listOfNotNull(
-                                "${identity.algorithm.ifBlank { "SSH key" }} · ${if (identity.requiresPassphrase) "Passphrase required" else "No passphrase"}",
-                                identity.fingerprint.takeIf { it.isNotEmpty() },
-                                "Used by $count ${if (count == 1) "machine" else "machines"}",
-                            ),
-                            trailing = { Icon(Icons.Outlined.ChevronRight, "Edit ${identity.name}") },
-                        )
+                    if (state.identities.isNotEmpty()) {
+                        item(key = "identities-label") { SectionTitle("Saved", state.identities.size) }
+                        item(key = "identity-card") {
+                            GroupedCard {
+                                state.identities.forEachIndexed { index, identity ->
+                                    if (index > 0) GroupDivider()
+                                    IdentityRow(identity, state, onIdentity)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+        if (!state.restoring && state.libraryError == null) {
+            AddFab(
+                onClick = { if (tab == 0) onMachine(null) else onIdentity(null) },
+                contentDescription = if (tab == 0) "Add machine" else "Add identity",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsRow(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    title: String,
-    lines: List<String>,
-    selected: Boolean = false,
-    trailing: @Composable () -> Unit = {},
+private fun SectionTitle(name: String, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp, top = 14.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(name, style = MaterialTheme.typography.headlineSmall)
+        CountBadge(count)
+    }
+}
+
+@Composable
+private fun MachineCard(
+    state: MainUiState,
+    machine: Machine,
+    onSelect: (String) -> Unit,
+    onMachine: (String?) -> Unit,
 ) {
+    val connection = state.connection(machine.id)
+    val identity = state.identities.firstOrNull { it.id == machine.identityId }
+    val color = when (connection.status) {
+        ConnectionStatus.Connected -> MaterialTheme.keroid.success
+        ConnectionStatus.Connecting, ConnectionStatus.VerifyHost -> MaterialTheme.keroid.attention
+        ConnectionStatus.Error -> MaterialTheme.keroid.danger
+        ConnectionStatus.Offline -> MaterialTheme.colorScheme.outline
+    }
     Surface(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.extraLarge,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        onClick = { onSelect(machine.id) },
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.keroid.window,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Surface(
-                shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp),
-            ) { Box(contentAlignment = Alignment.Center) { Icon(icon, null, modifier = Modifier.size(22.dp)) } }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                lines.forEach { line ->
-                    Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CookieTile(machine.name, selected = false, connected = connection.connected)
+            Column(Modifier.weight(1f)) {
+                Text(machine.name, style = MaterialTheme.typography.titleLarge, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (machine.isTailscale) machine.endpoint
+                    else "${machine.profile().address}:${machine.port}",
+                    fontFamily = KeroidMono,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    Modifier.padding(top = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(Modifier.size(7.dp).background(color, androidx.compose.foundation.shape.CircleShape))
+                    Text(
+                        buildString {
+                            if (!connection.connected && machine.isTailscale) {
+                                append("Tailscale · ${connection.status.label}")
+                            } else {
+                                append(connection.status.label)
+                                if (connection.connected) {
+                                    val count = connection.state.sessions.size
+                                    append(" · $count ${if (count == 1) "session" else "sessions"}")
+                                } else if (identity != null) {
+                                    append(" · ${identity.name}")
+                                }
+                            }
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = color,
+                    )
                 }
             }
-            trailing()
+            IconButton(onClick = { onMachine(machine.id) }) {
+                Icon(Icons.Outlined.MoreVert, "Edit ${machine.name}")
+            }
+        }
+    }
+}
+
+@Composable
+private fun IdentityRow(identity: Identity, state: MainUiState, onIdentity: (String?) -> Unit) {
+    val count = state.machines.count { it.identityId == identity.id }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable { onIdentity(identity.id) }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.keroid.raised, modifier = Modifier.size(44.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Key, null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            Text(identity.name, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${identity.algorithm.ifBlank { "SSH key" }} · $count ${if (count == 1) "machine" else "machines"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (identity.fingerprint.isNotBlank()) Text(
+                identity.fingerprint,
+                fontFamily = KeroidMono,
+                fontSize = 9.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = if (identity.requiresPassphrase) MaterialTheme.keroid.raised else Color.Transparent,
+        ) {
+            Text(
+                if (identity.requiresPassphrase) "passphrase" else "no passphrase",
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                fontFamily = KeroidMono,
+                fontSize = 8.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
 @Composable
 private fun EmptyConnections(title: String, body: String) {
-    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow,
+    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.keroid.window,
         modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
@@ -196,18 +323,23 @@ fun MachineEditorScreen(
     EditorScaffold(if (existing == null) "Add machine" else "Edit machine", onBack, state.saving) {
         OutlinedTextField(value = draft.name, onValueChange = { onDraft(draft.copy(name = it)) },
             label = { Text("Machine name") }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large)
+            shape = MaterialTheme.shapes.medium)
         // Two ways in, as desktop Kero has: SSH runs the bridge, Tailscale reaches
         // kerod's own tailnet listener or Serve and sends no key at all.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val selectedChip = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+            )
             FilterChip(selected = draft.transport == Transport.Ssh,
                 onClick = { onDraft(draft.copy(transport = Transport.Ssh)) }, enabled = enabled,
                 label = { Text("SSH") }, leadingIcon = { Icon(Icons.Outlined.Key, null) },
-                modifier = Modifier.weight(1f))
+                colors = selectedChip, modifier = Modifier.weight(1f))
             FilterChip(selected = draft.transport == Transport.Tailscale,
                 onClick = { onDraft(draft.copy(transport = Transport.Tailscale)) }, enabled = enabled,
                 label = { Text("Tailscale") }, leadingIcon = { Icon(Icons.Outlined.Public, null) },
-                modifier = Modifier.weight(1f))
+                colors = selectedChip, modifier = Modifier.weight(1f))
         }
         if (draft.transport == Transport.Tailscale) {
             OutlinedTextField(value = draft.endpoint, onValueChange = { onDraft(draft.copy(endpoint = it)) },
@@ -216,7 +348,7 @@ fun MachineEditorScreen(
                 supportingText = { Text("What the host's app shows after \u201cLet other machines connect\u201d, or https://name.tailnet.ts.net behind Tailscale Serve. kerod must already be running there.") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false, imeAction = ImeAction.Next),
                 singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large)
+                shape = MaterialTheme.shapes.medium)
             Text("No SSH key is used. kerod's owner and listen-allow rules decide who connects.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
@@ -225,11 +357,11 @@ fun MachineEditorScreen(
                     label = { Text("SSH address") }, placeholder = { Text("user@hostname") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     singleLine = true, enabled = enabled, modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.large)
+                    shape = MaterialTheme.shapes.medium)
                 OutlinedTextField(value = draft.port, onValueChange = { onDraft(draft.copy(port = it)) },
                     label = { Text("Port") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true, enabled = enabled, modifier = Modifier.width(112.dp),
-                    shape = MaterialTheme.shapes.large)
+                    shape = MaterialTheme.shapes.medium)
             }
             Box {
                 OutlinedButton(onClick = { identitiesOpen = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
@@ -239,7 +371,7 @@ fun MachineEditorScreen(
                     Icon(Icons.Outlined.ExpandMore, null)
                 }
                 DropdownMenu(expanded = identitiesOpen, onDismissRequest = { identitiesOpen = false },
-                    shape = MaterialTheme.shapes.large) {
+                    shape = MaterialTheme.shapes.medium) {
                     state.identities.forEach { identity ->
                         DropdownMenuItem(text = { Text(identity.name) }, onClick = {
                             identitiesOpen = false; onDraft(draft.copy(identityId = identity.id))
@@ -260,7 +392,7 @@ fun MachineEditorScreen(
                 OutlinedTextField(value = draft.executable, onValueChange = { onDraft(draft.copy(executable = it)) },
                     label = { Text("Kero executable (optional)") }, supportingText = { Text("Leave empty to discover Kero on Linux or macOS.") },
                     singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large)
+                    shape = MaterialTheme.shapes.medium)
             }
         }
         state.editorError?.let { ErrorCard(it) }
@@ -308,13 +440,13 @@ fun IdentityEditorScreen(
     EditorScaffold(if (existing == null) "Add identity" else "Edit identity", onBack, saving) {
         OutlinedTextField(value = name, onValueChange = onName, label = { Text("Identity name") },
             enabled = !saving, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large)
+            shape = MaterialTheme.shapes.medium)
         if (existing == null) {
             OutlinedTextField(value = privateKey, onValueChange = onKey, label = { Text("Private key") },
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                 minLines = 2, maxLines = 3, enabled = !saving, modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large)
+                shape = MaterialTheme.shapes.medium)
             OutlinedButton(onClick = { importKey.launch("*/*") }, enabled = !saving) {
                 Icon(Icons.Outlined.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import key file")
             }
@@ -344,7 +476,7 @@ internal fun ConnectionPrompts(state: MainUiState, passphrase: String, onPassphr
                 OutlinedTextField(value = passphrase, onValueChange = onPassphrase, label = { Text("Key passphrase") },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                    shape = MaterialTheme.shapes.large)
+                    shape = MaterialTheme.shapes.medium)
                 Text("Memory only. Never saved.", style = MaterialTheme.typography.bodySmall)
             } },
             confirmButton = { TextButton(onClick = onUnlock) { Text("Connect") } },
@@ -374,7 +506,7 @@ internal fun ConnectionPrompts(state: MainUiState, passphrase: String, onPassphr
 private fun EditorScaffold(title: String, onBack: () -> Unit, saving: Boolean,
                            content: @Composable ColumnScope.() -> Unit) {
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
+        topBar = { DetailBar(title, onBack, modifier = Modifier.statusBarsPadding()) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             Column(Modifier.fillMaxSize()
                 .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 560.dp)

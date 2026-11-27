@@ -61,8 +61,8 @@ class AppSettings(private val context: Context) : Preferences {
 
     /** Stored values are re-validated: an old or hand-edited value must not break the grid. */
     private fun readTerminalAppearance() = TerminalAppearance(
-        lightTheme = prefs.getString(KEY_TERMINAL_LIGHT_THEME, null) ?: TerminalAppearance.KEROID,
-        darkTheme = prefs.getString(KEY_TERMINAL_DARK_THEME, null) ?: TerminalAppearance.KEROID,
+        lightTheme = prefs.getString(KEY_TERMINAL_LIGHT_THEME, null) ?: TerminalAppearance.DEFAULT_LIGHT,
+        darkTheme = prefs.getString(KEY_TERMINAL_DARK_THEME, null) ?: TerminalAppearance.DEFAULT_DARK,
         font = prefs.getString(KEY_TERMINAL_FONT, null)?.let { stored ->
             TerminalFontChoice.entries.firstOrNull { it.name == stored }
         } ?: TerminalFontChoice.Bundled,

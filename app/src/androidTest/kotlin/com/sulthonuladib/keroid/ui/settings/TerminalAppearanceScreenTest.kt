@@ -21,7 +21,7 @@ import org.junit.Test
 class TerminalAppearanceScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun settingsLeadsToTerminalAppearanceWithoutChangingTheAppTheme() {
+    @Test fun settingsLeadsToAppearanceWithoutChangingTheAppTheme() {
         var opened = false
         compose.setContent {
             KeroidTheme(dynamicColor = false) {
@@ -29,22 +29,20 @@ class TerminalAppearanceScreenTest {
                     onTerminalAppearance = { opened = true })
             }
         }
-        compose.onNodeWithText("Terminal appearance").assertExists()
-        compose.onNodeWithText("Terminal appearance").performClick()
-        compose.runOnIdle { assertTrue("settings opens terminal appearance", opened) }
+        compose.onNodeWithText("Theme").assertExists()
+        compose.onNodeWithText("Theme").performClick()
+        compose.runOnIdle { assertTrue("settings opens appearance", opened) }
     }
 
     @Test fun previewAndSteppersChangeOnlyTheTerminalAppearance() {
         var appearance by mutableStateOf(TerminalAppearance())
         compose.setContent {
             KeroidTheme(dynamicColor = false) {
-                TerminalAppearanceScreen(appearance, dark = true, onChange = { appearance = it },
-                    onPickTheme = {}, onBack = {})
+                TerminalTypeScreen(appearance, dark = true, onChange = { appearance = it }, onBack = {})
             }
         }
         compose.onNodeWithContentDescription("Terminal theme preview").assertExists()
-        compose.onNodeWithText("Dark theme").assertExists()
-        compose.onNodeWithText("Light theme").assertExists()
+        compose.onNodeWithText("JetBrains Mono").assertExists()
 
         val size = appearance.fontSize
         compose.onNodeWithContentDescription("Increase Font size").performClick()
@@ -69,7 +67,7 @@ class TerminalAppearanceScreenTest {
                     onSelect = { picked = it }, onBack = { closed = true })
             }
         }
-        compose.onNodeWithText("Dark terminal theme").assertExists()
+        compose.onNodeWithText("Dark theme").assertExists()
         compose.onNodeWithContentDescription("Keroid theme").assertExists()
         compose.onNodeWithText("Search ${TerminalAppearance.themeNames.size} themes").assertExists()
 

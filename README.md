@@ -30,7 +30,7 @@ Install Kero on the remote machine, then add that machine in Keroid:
   `https://devbox.tail1234.ts.net`. The host needs kerod already running with a
   tailnet listener or Tailscale Serve; no SSH key is needed. Access is decided
   by kerod's owner/`listen-allow` rules. See Kero's
-  [remote-host docs](https://github.com/egoist/kero/blob/v2.1.24/docs/remote.md)
+  [remote-host docs](https://github.com/egoist/kero/blob/v2.1.27/docs/remote.md)
   for host setup.
 
 Private keys are encrypted with Android Keystore; passphrases are kept only
