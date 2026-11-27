@@ -12,37 +12,49 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import java.util.UUID
 import com.sulthonuladib.keroid.ui.main.*
+import com.sulthonuladib.keroid.ui.settings.AppearanceScreen
 import com.sulthonuladib.keroid.ui.settings.SettingsScreen
-import com.sulthonuladib.keroid.ui.settings.TerminalAppearanceScreen
 import com.sulthonuladib.keroid.ui.settings.TerminalThemePickerScreen
+import com.sulthonuladib.keroid.ui.settings.TerminalTypeScreen
 import com.sulthonuladib.keroid.term.GhosttyTerminal
 import com.sulthonuladib.keroid.term.TerminalProbeScreen
+import com.sulthonuladib.keroid.ui.theme.keroid
+
+private enum class RootTab(val label: String, val icon: ImageVector, val tag: String, val destination: NavKey) {
+    Sessions("Sessions", Icons.Outlined.Terminal, "tab-sessions", Main),
+    Machines("Machines", Icons.Outlined.Devices, "tab-machines", Connections),
+    SettingsTab("Settings", Icons.Outlined.Settings, "tab-settings", Settings),
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -52,7 +64,16 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
     val key by viewModel.privateKey.collectAsStateWithLifecycle()
     val passphrase by viewModel.passphrase.collectAsStateWithLifecycle()
+    val appearance by viewModel.terminalAppearance.collectAsStateWithLifecycle()
+    val mode by viewModel.theme.collectAsStateWithLifecycle()
     val active = backStack.lastOrNull()
+    val root = RootTab.entries.firstOrNull {
+        when (it) {
+            RootTab.Sessions -> active is Main
+            RootTab.Machines -> active is Connections
+            RootTab.SettingsTab -> active is Settings
+        }
+    }
     ProtectSecrets(state.unlock != null)
     LaunchedEffect(active) {
         if (active !is IdentityEditor) viewModel.discardIdentityDraft()
@@ -74,12 +95,10 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
         viewModel.beginIdentity(identityId)
         backStack.add(IdentityEditor(identityId))
     }
-    val tabs = active is Main || active is Connections
-    val switchTab: (Boolean) -> Unit = { toHome ->
-        if (toHome) {
-            if (active !is Main) while (backStack.size > 1) backStack.removeLastOrNull()
-        } else if (active !is Connections) {
-            backStack.add(Connections)
+    val switchTab: (RootTab) -> Unit = { tab ->
+        if (root != tab) {
+            while (backStack.size > 1) backStack.removeLastOrNull()
+            if (tab.destination != Main) backStack.add(tab.destination)
         }
     }
     BoxWithConstraints {
@@ -88,57 +107,57 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
     val wide = maxWidth >= 600.dp
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (tabs && !wide) {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = active is Main,
-                        onClick = { switchTab(true) },
-                        modifier = Modifier.testTag("tab-sessions"),
-                        icon = {
-                            Icon(
-                                if (active is Main) Icons.Filled.Home else Icons.Outlined.Home,
-                                contentDescription = null,
-                            )
-                        },
-                        label = { Text("Sessions") },
-                    )
-                    NavigationBarItem(
-                        selected = active is Connections,
-                        onClick = { switchTab(false) },
-                        modifier = Modifier.testTag("tab-machines"),
-                        icon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
-                        label = { Text("Machines") },
-                    )
+            if (root != null && !wide) {
+                NavigationBar(
+                    containerColor = MaterialTheme.keroid.window,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tonalElevation = 0.dp,
+                ) {
+                    RootTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = root == tab,
+                            onClick = { switchTab(tab) },
+                            modifier = Modifier.testTag(tab.tag),
+                            icon = { Icon(tab.icon, contentDescription = null) },
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },
     ) { navPadding ->
     Row(Modifier.fillMaxSize().padding(navPadding).consumeWindowInsets(navPadding)) {
-    if (tabs && wide) {
+    if (root != null && wide) {
         NavigationRail(
             modifier = Modifier.fillMaxHeight(),
             windowInsets = WindowInsets(0),
+            containerColor = MaterialTheme.keroid.window,
         ) {
-            NavigationRailItem(
-                selected = active is Main,
-                onClick = { switchTab(true) },
-                modifier = Modifier.testTag("tab-sessions"),
-                icon = {
-                    Icon(
-                        if (active is Main) Icons.Filled.Home else Icons.Outlined.Home,
-                        contentDescription = null,
-                    )
-                },
-                label = { Text("Sessions") },
-            )
-            NavigationRailItem(
-                selected = active is Connections,
-                onClick = { switchTab(false) },
-                modifier = Modifier.testTag("tab-machines"),
-                icon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
-                label = { Text("Machines") },
-            )
+            RootTab.entries.forEach { tab ->
+                NavigationRailItem(
+                    selected = root == tab,
+                    onClick = { switchTab(tab) },
+                    modifier = Modifier.testTag(tab.tag),
+                    icon = { Icon(tab.icon, contentDescription = null) },
+                    label = { Text(tab.label) },
+                    colors = NavigationRailItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                )
+            }
         }
     }
     NavDisplay(
@@ -165,7 +184,7 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
                 HomeScreen(state, viewModel::selectMachine,
                     onSession = { machine, session -> backStack.add(SessionDetail(machine, session)) },
                     onAddMachine = { editMachine(null) },
-                    onConnections = { backStack.add(Connections) },
+                    onConnections = { switchTab(RootTab.Machines) },
                     onConnect = viewModel::connect, onDisconnect = viewModel::disconnect,
                     onRetryStorage = viewModel::restore,
                     onOpenProject = { backStack.add(ProjectBrowser(it)) },
@@ -178,10 +197,9 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
             entry<Connections> {
                 ConnectionsScreen(state, back, onSelect = { viewModel.selectMachine(it); back() },
                     onMachine = editMachine, onIdentity = editIdentity,
-                    onSettings = { backStack.add(Settings) })
+                    onSettings = { switchTab(RootTab.SettingsTab) })
             }
             entry<Settings> {
-                val theme by viewModel.theme.collectAsStateWithLifecycle()
                 val context = LocalContext.current
                 val debuggable =
                     (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -191,20 +209,26 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
                     } else {
                         null
                     }
-                SettingsScreen(theme, viewModel::setTheme, back, onTerminalTest = terminalTest,
-                    onTerminalAppearance = { backStack.add(TerminalAppearanceSettings) })
+                SettingsScreen(mode, viewModel::setTheme, back, onTerminalTest = terminalTest,
+                    onTerminalAppearance = { backStack.add(TerminalAppearanceSettings) },
+                    appearance = appearance,
+                    showBack = false,
+                    onTerminalType = { backStack.add(TerminalTypeSettings) })
             }
             entry<TerminalProbe> {
-                val appearance by viewModel.terminalAppearance.collectAsStateWithLifecycle()
                 TerminalProbeScreen(onBack = back, appearance = appearance, dark = dark)
             }
             entry<TerminalAppearanceSettings> {
-                val appearance by viewModel.terminalAppearance.collectAsStateWithLifecycle()
-                TerminalAppearanceScreen(appearance, dark, viewModel::setTerminalAppearance,
-                    onPickTheme = { isDark -> backStack.add(TerminalThemePicker(isDark)) }, onBack = back)
+                AppearanceScreen(appearance, dark, mode, viewModel::setTheme,
+                    onChange = viewModel::setTerminalAppearance,
+                    onPickTheme = { isDark -> backStack.add(TerminalThemePicker(isDark)) },
+                    onBack = back,
+                    onTerminalType = { backStack.add(TerminalTypeSettings) })
+            }
+            entry<TerminalTypeSettings> {
+                TerminalTypeScreen(appearance, dark, viewModel::setTerminalAppearance, onBack = back)
             }
             entry<TerminalThemePicker> { route ->
-                val appearance by viewModel.terminalAppearance.collectAsStateWithLifecycle()
                 TerminalThemePickerScreen(route.dark,
                     selected = if (route.dark) appearance.darkTheme else appearance.lightTheme,
                     onSelect = { name ->
@@ -261,7 +285,7 @@ fun MainNavigation(viewModel: MainViewModel, dark: Boolean) {
             entry<SessionDetail> { route ->
                 PaneScreen(route.machineId, state.machines.firstOrNull { it.id == route.machineId }?.name ?: "Removed machine",
                     state.connection(route.machineId).state.sessions.firstOrNull { it.id == route.sessionId }, state,
-                    terminalAppearance = viewModel.terminalAppearance.collectAsStateWithLifecycle().value,
+                    terminalAppearance = appearance,
                     darkTerminal = dark,
                     onBack = { if (backStack.lastOrNull() == route) back() },
                     onStartReading = viewModel::startReading, onStopReading = viewModel::stopReading,

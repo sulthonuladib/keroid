@@ -30,16 +30,34 @@ class TerminalAppearanceTest {
 
     @Test fun themesResolvePerAppearanceWithKeroidFirstAndLast() {
         assertTrue(TerminalAppearance.themeNames.first() == TerminalAppearance.KEROID)
-        assertEquals(TerminalAppearance.themeNames.size, TerminalThemes.all.size + 1)
+        assertEquals(TerminalAppearance.themeNames.size,
+            TerminalThemes.all.size + KeroWash.all.size + 1)
         assertTrue(TerminalThemes.all.all { it.name in TerminalAppearance.themeNames })
+        assertTrue(KeroWash.all.all { it.name in TerminalAppearance.themeNames })
     }
 
-    @Test fun keroidIsTheDefaultInBothAppearances() {
+    @Test fun keroWashesTintBothSlotsAndRemainLightOrDark() {
+        assertEquals(10, KeroWash.all.size)
+        KeroWash.all.forEach { wash ->
+            val light = wash.theme(dark = false)
+            val dark = wash.theme(dark = true)
+            assertEquals(wash.name, light.name)
+            assertFalse("${wash.name} light slot is light", light.isDark)
+            assertTrue("${wash.name} dark slot is dark", dark.isDark)
+            assertNotEquals(light.background, dark.background)
+            assertEquals(22, light.colors.size)
+        }
+        val petal = TerminalAppearance.resolveTheme("petal", false)
+        assertEquals("petal", petal.name)
+        assertEquals(KeroWash.byName("petal")!!.window(false), petal.background)
+    }
+
+    @Test fun catppuccinPairIsTheDefaultInBothAppearances() {
         val appearance = TerminalAppearance()
-        assertEquals(TerminalAppearance.KEROID, appearance.lightTheme)
-        assertEquals(TerminalAppearance.KEROID, appearance.darkTheme)
-        assertEquals(keroidTheme(dark = false), appearance.theme(dark = false))
-        assertEquals(keroidTheme(dark = true), appearance.theme(dark = true))
+        assertEquals("Catppuccin Latte", appearance.lightTheme)
+        assertEquals("Catppuccin Mocha", appearance.darkTheme)
+        assertEquals(TerminalThemes.byName("Catppuccin Latte"), appearance.theme(dark = false))
+        assertEquals(TerminalThemes.byName("Catppuccin Mocha"), appearance.theme(dark = true))
         assertNotEquals(appearance.theme(false).background, appearance.theme(true).background)
         assertEquals("a light theme is light", false, appearance.theme(false).isDark)
         assertEquals("a dark theme is dark", true, appearance.theme(true).isDark)
@@ -67,6 +85,13 @@ class TerminalAppearanceTest {
                 theme.palette[0], theme.background)
             assertNotEquals(theme.selection, theme.background)
         }
+    }
+
+
+    @Test fun washNamesDoNotShadowCaseInsensitiveGhosttyNames() {
+        assertNull("washes are lower-case exact names", KeroWash.byName("Aurora"))
+        assertEquals("Aurora", TerminalAppearance.resolveTheme("Aurora", false).name)
+        assertEquals("aurora", TerminalAppearance.resolveTheme("aurora", false).name)
     }
 
     @Test fun lineHeightFollowsFontSizeAndStaysIntegral() {

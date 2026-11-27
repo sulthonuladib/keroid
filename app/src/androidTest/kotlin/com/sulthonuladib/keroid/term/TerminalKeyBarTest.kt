@@ -25,7 +25,7 @@ class TerminalKeyBarTest {
         compose.onNodeWithContentDescription("Control").performClick()
         compose.onNodeWithContentDescription("Tab").performClick()
         compose.runOnIdle { assertEquals(false, ctrl.value) }
-        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(14)
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(19)
         compose.onNodeWithContentDescription("Control R").performClick()
         compose.runOnIdle {
             val presses = received.filter { it.action != 0 }

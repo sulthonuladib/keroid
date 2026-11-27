@@ -8,14 +8,15 @@ import androidx.compose.ui.text.font.FontFamily
  * follows the app's light/dark mode only to choose between the two themes, as
  * desktop Kero picks its light or dark terminal theme for the window.
  *
- * Defaults match desktop Kero: its own "Keroid" palette and the bundled
- * JetBrains Mono Nerd Font, so a fresh install looks like Kero's terminal.
+ * Defaults match the Keroid design system: Catppuccin Latte for light and
+ * Mocha for dark. The same pair also colours the app's own interface, so one
+ * choice cannot leave the terminal and the chrome in different palettes.
  */
 data class TerminalAppearance(
-    /** Theme name for a light app appearance; [KEROID] keeps Kero's own palette. */
-    val lightTheme: String = KEROID,
+    /** Theme name for a light app appearance. */
+    val lightTheme: String = DEFAULT_LIGHT,
     /** Theme name for a dark app appearance. */
-    val darkTheme: String = KEROID,
+    val darkTheme: String = DEFAULT_DARK,
     val font: TerminalFontChoice = TerminalFontChoice.Bundled,
     /** Terminal font size in sp. */
     val fontSize: Float = 13f,
@@ -29,24 +30,33 @@ data class TerminalAppearance(
     val lineHeightSp: Float get() = fontSize * lineHeight
 
     companion object {
-        /** Kero's own terminal palette, the default in both appearances. */
+        /** Kero's own terminal palette, still selectable from the catalogue. */
         const val KEROID = "Keroid"
+
+        /** The design default: one pair drives the app surface and the terminal. */
+        const val DEFAULT_LIGHT = "Catppuccin Latte"
+        const val DEFAULT_DARK = "Catppuccin Mocha"
 
         const val MIN_FONT_SIZE = 10f
         const val MAX_FONT_SIZE = 22f
         const val MIN_LINE_HEIGHT = 1.0f
         const val MAX_LINE_HEIGHT = 1.8f
 
-        /** Everything a picker offers, Keroid first as desktop lists its own theme. */
-        val themeNames: List<String> = listOf(KEROID) + TerminalThemes.all.map { it.name }
+        /** Everything a picker offers: Keroid, the ten Kero washes, then Ghostty. */
+        val themeNames: List<String> =
+            listOf(KEROID) + KeroWash.all.map { it.name } + TerminalThemes.all.map { it.name }
 
         /**
          * A stored name to a theme. An unknown name (a removed Ghostty theme, a
          * hand-edited preference) falls back to Keroid's palette rather than
          * failing or showing stale colours.
          */
-        fun resolveTheme(name: String, dark: Boolean): TerminalTheme =
-            if (name == KEROID) keroidTheme(dark) else TerminalThemes.byName(name) ?: keroidTheme(dark)
+        fun resolveTheme(name: String, dark: Boolean): TerminalTheme = when {
+            name == KEROID -> keroidTheme(dark)
+            else -> KeroWash.byName(name)?.theme(dark)
+                ?: TerminalThemes.byName(name)
+                ?: keroidTheme(dark)
+        }
     }
 }
 

@@ -107,7 +107,7 @@ class ConnectionScreenTest {
                 while (owner is android.content.ContextWrapper && owner !is android.app.Activity) owner = owner.baseContext
                 testWindow = (owner as android.app.Activity).window
             }
-            KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) }
+            KeroidTheme(darkTheme = true, dynamicColor = false) { MainNavigation(vm, dark = false) }
         }
         compose.waitUntil { !vm.ui.value.restoring }
     }
@@ -123,7 +123,7 @@ class ConnectionScreenTest {
         compose.onNodeWithTag("tab-machines").performClick()
         compose.waitForIdle()
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val title = compose.onNodeWithText("Connections").fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithTag("machines-title").fetchSemanticsNode().boundsInRoot
         val region = androidx.compose.ui.geometry.Rect(0f, title.top - root.top, root.width, title.bottom - root.top)
         val before = headerLuma(compose.onRoot().captureToImage().toPixelMap(), region)
         val frames = mutableListOf<ByteArray>()
@@ -134,7 +134,7 @@ class ConnectionScreenTest {
             repeat(60) {
                 compose.mainClock.advanceTimeByFrame()
                 compose.waitForIdle()
-                val previous = compose.onAllNodesWithText("Connections").fetchSemanticsNodes()
+                val previous = compose.onAllNodesWithTag("machines-title").fetchSemanticsNodes()
                 val next = compose.onAllNodesWithText("Edit machine").fetchSemanticsNodes()
                 overlaps += previous.any { old -> next.any { old.boundsInRoot.overlaps(it.boundsInRoot) } }
                 frames += headerLuma(compose.onRoot().captureToImage().toPixelMap(), region)
@@ -221,7 +221,7 @@ class ConnectionScreenTest {
                 if (values.any { it != expectedName }) reset = true
                 val pixels = compose.onRoot().captureToImage().toPixelMap()
                 if (noBlending) {
-                    val destinationTitles = compose.onAllNodesWithText("Connections").fetchSemanticsNodes()
+                    val destinationTitles = compose.onAllNodesWithTag("machines-title").fetchSemanticsNodes()
                     overlappingTitles += titles.any { old -> destinationTitles.any { old.boundsInRoot.overlaps(it.boundsInRoot) } }
                     headerFrames += headerLuma(pixels, header)
                 }
@@ -241,7 +241,7 @@ class ConnectionScreenTest {
                 // composed briefly. Its clipped bounds are not a visible jump.
                 if (level > 0.4f && outgoingSizes.any { editorSize != null && it != editorSize })
                     resizedDuringExit = true
-                frames += "$frame: editor=${titles.map { it.boundsInRoot }} field=${values.map { "<$it>" }} sizes=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.size }} bounds=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.boundsInRoot }} insets=$insets expectedSize=$editorSize exit=${exitLevels.last()} previous=${compose.onAllNodesWithText("Connections").fetchSemanticsNodes().map { it.boundsInRoot }}"
+                frames += "$frame: editor=${titles.map { it.boundsInRoot }} field=${values.map { "<$it>" }} sizes=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.size }} bounds=${compose.onAllNodes(scrollMatcher).fetchSemanticsNodes().map { it.boundsInRoot }} insets=$insets expectedSize=$editorSize exit=${exitLevels.last()} previous=${compose.onAllNodesWithTag("machines-title").fetchSemanticsNodes().map { it.boundsInRoot }}"
             }
         } finally {
             gate.countDown()
@@ -261,7 +261,7 @@ class ConnectionScreenTest {
         assertTrue("Editor exit reversed direction:\n$trace", editorLeft.zipWithNext().all { (a, b) -> b >= a - 1f })
         assertFalse("Outgoing editor reset while still visible:\n$trace", reset)
         assertFalse("Visible outgoing editor resized during exit:\n$trace", resizedDuringExit)
-        compose.onNodeWithText("Connections").assertExists()
+        compose.onNodeWithTag("machines-title").assertExists()
         compose.onNodeWithText(expectedName).assertExists()
         if (noBlending) assertNoHeaderBlend(beforeHeader!!,
             headerLuma(compose.onRoot().captureToImage().toPixelMap(), header), headerFrames, overlappingTitles)
@@ -311,7 +311,7 @@ class ConnectionScreenTest {
         compose.onNodeWithTag("tab-machines").performClick()
         compose.onNodeWithText("Identities").performClick()
         compose.waitForIdle()
-        if (newIdentity) compose.onNodeWithText("Add identity", useUnmergedTree = true).performClick()
+        if (newIdentity) compose.onNodeWithContentDescription("Add identity").performClick()
         else compose.onNodeWithText("Work").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Identity name").performTextReplacement("Synthetic identity")
@@ -354,7 +354,7 @@ class ConnectionScreenTest {
         assertFalse("Outgoing Add identity flashed as Edit identity after commit", changedMode)
         assertFalse("Destination tabs resized the outgoing identity editor", resized)
         assertFalse("FLAG_SECURE was toggled off while the identity editor was still drawing", unprotectedDuringExit)
-        compose.onNodeWithText("Connections").assertExists()
+        compose.onNodeWithTag("machines-title").assertExists()
         compose.onNodeWithText("Synthetic identity").assertExists()
         assertTrue("Private key must still be cleared immediately", vm.privateKey.value.isEmpty())
     }
@@ -392,7 +392,7 @@ class ConnectionScreenTest {
     @Test fun homeRenameDraftSurvivesRestorationAndCancelDoesNotMutate() {
         val vm = viewModel(actionLibrary(), actionState())
         val restoration = StateRestorationTester(compose)
-        restoration.setContent { KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) } }
+        restoration.setContent { KeroidTheme(darkTheme = true, dynamicColor = false) { MainNavigation(vm, dark = false) } }
         compose.waitUntil { !vm.ui.value.restoring }
         connect(vm)
         compose.onNodeWithContentDescription("Actions for Original").performClick()
@@ -528,7 +528,7 @@ class ConnectionScreenTest {
 
     @Test fun compactHomeIsSearchBehindAButtonWithoutMarketingOrOnboardingForm() {
         start(viewModel())
-        compose.onNodeWithText("Keroid").assertExists()
+        compose.onNodeWithTag("sessions-title").assertExists()
         compose.onNodeWithContentDescription("Search sessions").assertExists()
         compose.onNodeWithTag("tab-sessions").assertExists()
         compose.onNodeWithTag("tab-machines").assertExists()
@@ -569,7 +569,7 @@ class ConnectionScreenTest {
         compose.onNodeWithText("Work").assertExists()
         compose.onNodeWithText("Save machine").performScrollTo().performClick()
         compose.waitUntil { vm.ui.value.machines.size == 1 }
-        compose.onNodeWithText("Dev").assertExists()
+        compose.onAllNodesWithText("Dev").onFirst().assertExists()
         assertEquals(vm.ui.value.identities.single().id, vm.ui.value.machines.single().identityId)
         assertTrue(vm.privateKey.value.isEmpty())
     }
@@ -577,7 +577,7 @@ class ConnectionScreenTest {
     @Test fun portIsVisibleWithoutAdvancedAndDraftSurvivesRestoration() {
         val vm = viewModel()
         val restoration = StateRestorationTester(compose)
-        restoration.setContent { KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) } }
+        restoration.setContent { KeroidTheme(darkTheme = true, dynamicColor = false) { MainNavigation(vm, dark = false) } }
         compose.waitUntil { !vm.ui.value.restoring }
         compose.onNodeWithText("Add a machine").performClick()
         compose.onNodeWithText("Save machine").performScrollTo().performClick()
@@ -599,12 +599,12 @@ class ConnectionScreenTest {
             listOf(Machine("a", "Dev", "devbox", "alice", "key"), Machine("b", "Build", "buildbox", "alice", "key")))
         val vm = viewModel(library)
         val restoration = StateRestorationTester(compose)
-        restoration.setContent { KeroidTheme(dynamicColor = false) { MainNavigation(vm, dark = false) } }
+        restoration.setContent { KeroidTheme(darkTheme = true, dynamicColor = false) { MainNavigation(vm, dark = false) } }
         compose.waitUntil { !vm.ui.value.restoring }
-        compose.onNodeWithContentDescription("Search sessions").performClick()
-        compose.onNode(hasSetTextAction()).performTextInput("query")
         compose.onNodeWithText("Build").performClick()
         compose.runOnIdle { assertEquals("b", vm.ui.value.selectedMachineId) }
+        compose.onNodeWithContentDescription("Search sessions").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("query")
         compose.onNodeWithTag("tab-machines").performClick()
         compose.onNodeWithText("Identities").performClick()
         compose.onNodeWithText("Work").assertExists()
@@ -612,7 +612,8 @@ class ConnectionScreenTest {
         compose.onNodeWithText("Work").assertExists()
         compose.onNodeWithTag("tab-sessions").performClick()
         compose.onNodeWithText("query").assertExists()
-        compose.onNodeWithText("Build").assertExists()
+        compose.onNodeWithContentDescription("Close search").performClick()
+        compose.onAllNodesWithText("Build").onFirst().assertExists()
     }
 
     @Test fun identityManagerPreventsDeletingAnInUseKey() {
@@ -632,7 +633,7 @@ class ConnectionScreenTest {
 
     @Test fun changedHostPromptHasNoTrustOrReplaceAction() {
         val machine = Machine("a", "Dev", "devbox", "alice", "key")
-        compose.setContent { KeroidTheme(dynamicColor = false) {
+        compose.setContent { KeroidTheme(darkTheme = true, dynamicColor = false) {
             ConnectionPrompts(MainUiState(restoring = false, machines = listOf(machine), connections = mapOf("a" to MachineUiState(
                 ConnectionStatus.VerifyHost, hostKey = HostKeyProblem("host_key_changed", "SHA256:different", "ssh-ed25519")))),
                 "", {}, {}, {}, {}, {})

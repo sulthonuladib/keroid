@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val mode by settings.theme.collectAsStateWithLifecycle()
+            val appearance by settings.terminalAppearance.collectAsStateWithLifecycle()
             val dark = when (mode) {
                 ThemeMode.System -> isSystemInDarkTheme()
                 ThemeMode.Light -> false
@@ -42,7 +43,11 @@ class MainActivity : ComponentActivity() {
                     navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
                 )
             }
-            KeroidTheme(darkTheme = dark) { MainNavigation(viewModel, dark) }
+            KeroidTheme(
+                darkTheme = dark,
+                lightTheme = appearance.lightTheme,
+                darkThemeName = appearance.darkTheme,
+            ) { MainNavigation(viewModel, dark) }
         }
     }
 }

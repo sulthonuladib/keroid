@@ -6,11 +6,12 @@ takes data from:
 
 | Component | Used for | Licence | Source |
 |---|---|---|---|
-| [Kero](https://github.com/egoist/kero) `v2.1.24` | Wire protocol, control/attach frames, theme palette defaults. Protocol code was mirrored; no desktop Kero code is modified or shipped. | MIT, © 2026 EGOIST | Kero repository (read-only reference in `repos/`, not pushed) |
+| [Kero](https://github.com/egoist/kero) `v2.1.27` | Wire protocol, control/attach frames, theme palette defaults. Protocol code was mirrored; no desktop Kero code is modified or shipped. | MIT, © 2026 EGOIST | Kero repository (read-only reference in `repos/`, not pushed) |
 | [libghostty-vt](https://github.com/ghostty-org/ghostty) | The terminal emulator core (statically linked into `libkeroid_term.so`) | MIT, © 2024 Mitchell Hashimoto, Ghostty contributors | `scripts/build-ghostty.sh` pins the commit |
 | [hashicorp/yamux](https://github.com/hashicorp/yamux) `v0.1.2` | Stream multiplexing over one connection | MPL-2.0, © 2014 HashiCorp, Inc. Unmodified; source available at the link. | Go module |
 | [coder/websocket](https://github.com/coder/websocket) `v1.8.14` | Tailscale transport (WebSocket client) | ISC, © 2025 Coder | Go module |
 | [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | SSH client and key parsing | BSD-3-Clause, © 2009 The Go Authors | Go module |
+| [Google Sans Flex](https://github.com/googlefonts/googlesans-flex) | Bundled interface font (`app/src/main/res/font`, four static weights) | SIL Open Font License 1.1, © 2022 The Google Sans Flex Project Authors | Licence text: `app/src/main/assets/licenses/google_sans_flex_OFL.txt` |
 | [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) Nerd Font variant | Bundled terminal font (`app/src/main/res/font`, four faces) | SIL Open Font License 1.1 | Licence text: `app/src/main/assets/licenses/jetbrains_mono_nerd_OFL.txt` |
 | [Ghostty's shipped themes](https://ghostty.org) via [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) | The 617-entry terminal theme catalogue (`TerminalThemes.kt`) | Collection MIT, © 2011 to Present Mark Badolato; each theme is its author's copyright | iTerm2-Color-Schemes; provenance recorded in the generated file and `scripts/gen-terminal-themes.py` |
 | AndroidX / Compose / Material 3, Hilt, Kotlin, kotlinx.coroutines, kotlinx.serialization, Navigation 3 | App framework and UI | Apache License 2.0 | Respective AndroidX/JetBrains/Kotlinx releases |
@@ -21,8 +22,9 @@ takes data from:
 - **MPL-2.0** (yamux): the full text is in [licenses/MPL-2.0.txt](licenses/MPL-2.0.txt).
   Yamux is used unmodified, and its source is available at the link above, as the
   licence requires.
-- **SIL OFL 1.1** (JetBrains Mono Nerd Font): bundled with the font at
-  `app/src/main/assets/licenses/jetbrains_mono_nerd_OFL.txt`, and it ships inside
+- **SIL OFL 1.1** (Google Sans Flex and JetBrains Mono Nerd Font): bundled with the
+  fonts at `app/src/main/assets/licenses/google_sans_flex_OFL.txt` and
+  `app/src/main/assets/licenses/jetbrains_mono_nerd_OFL.txt`, and both ship inside
   the APK.
 - **MIT** (Kero, libghostty-vt, iTerm2-Color-Schemes themes) and **BSD-3-Clause**
   (Go, x/crypto) and **ISC** (coder/websocket) are permissive notices reproduced

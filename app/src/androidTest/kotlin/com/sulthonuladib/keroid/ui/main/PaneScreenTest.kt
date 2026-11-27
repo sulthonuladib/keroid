@@ -58,7 +58,7 @@ class PaneScreenTest {
         compose.onNodeWithText("Shell", substring = false).assertDoesNotExist() // No redundant one-pane tab.
         val before = measurements.toList()
         compose.onNodeWithText("Keys").performClick()
-        compose.onNodeWithText("Esc").assertExists()
+        compose.onNodeWithContentDescription("Escape").assertExists()
         compose.waitForIdle()
         assertEquals(canvas, compose.onNodeWithTag("terminal-canvas").fetchSemanticsNode().boundsInRoot)
         assertEquals(before, measurements)

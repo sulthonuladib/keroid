@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object Settings : NavKey
 @Serializable data object TerminalProbe : NavKey
 @Serializable data object TerminalAppearanceSettings : NavKey
+@Serializable data object TerminalTypeSettings : NavKey
 @Serializable data class TerminalThemePicker(val dark: Boolean) : NavKey
 @Serializable data class MachineEditor(val machineId: String) : NavKey
 @Serializable data class IdentityEditor(val identityId: String) : NavKey

@@ -1,50 +1,56 @@
 package com.sulthonuladib.keroid.ui.main
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,15 +63,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sulthonuladib.keroid.data.KeroProject
 import com.sulthonuladib.keroid.data.KeroSession
 import com.sulthonuladib.keroid.data.KeroState
 import com.sulthonuladib.keroid.data.Machine
+import com.sulthonuladib.keroid.ui.components.AddFab
+import com.sulthonuladib.keroid.ui.components.AgentBadge
+import com.sulthonuladib.keroid.ui.components.CountBadge
+import com.sulthonuladib.keroid.ui.components.CookieTile
+import com.sulthonuladib.keroid.ui.components.GroupDivider
+import com.sulthonuladib.keroid.ui.components.GroupedCard
+import com.sulthonuladib.keroid.ui.components.LargeHeader
+import com.sulthonuladib.keroid.ui.components.ProjectHeader
+import com.sulthonuladib.keroid.ui.components.SegmentedGroup
+import com.sulthonuladib.keroid.ui.components.SessionStatusLabel
+import com.sulthonuladib.keroid.ui.components.StatusDot
+import com.sulthonuladib.keroid.ui.theme.KeroidMono
 import com.sulthonuladib.keroid.ui.theme.KeroidTheme
+import com.sulthonuladib.keroid.ui.theme.keroid
 
 private enum class SessionFilter(val label: String) {
     All("All"),
@@ -74,11 +98,12 @@ private enum class SessionFilter(val label: String) {
 }
 
 /**
- * The home screen: a search button in the app bar, the machine switcher, and the
- * selected machine's sessions. The search field only appears once it is asked
- * for, so a connected machine's list stays the first thing on screen.
+ * Sessions, rebuilt from the Doop design: one large title, a cookie-tile
+ * machine rail, a segmented filter and compact grouped rows. A session is a
+ * 66 dp row — no preview, no card per row — and the FAB opens a three-action
+ * menu instead of a dropdown.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     ui: MainUiState,
@@ -95,9 +120,11 @@ fun HomeScreen(
     onCloseSession: (String, String, () -> Unit) -> Unit = { _, _, _ -> },
 ) {
     var createMenu by remember { mutableStateOf(false) }
+    var newSessionSheet by remember { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var filterName by rememberSaveable { mutableStateOf(SessionFilter.All.name) }
+    var foldedProjects by rememberSaveable { mutableStateOf("") }
     val filter = SessionFilter.valueOf(filterName)
     val enabled = !ui.restoring && ui.libraryError == null
     val machine = ui.selectedMachine
@@ -135,118 +162,192 @@ fun HomeScreen(
             matchesFilter && (query.isBlank() || haystack.contains(query.trim(), ignoreCase = true))
         }
     }
+    val counts = remember(state.sessions) {
+        listOf(
+            state.sessions.size,
+            state.sessions.count { it.needsAttention },
+            state.sessions.count { it.status == "working" },
+        )
+    }
+    val other = remember(state.projects, state.sessions) {
+        val known = state.projects.map { it.id }.toSet()
+        if (state.sessions.any { it.project !in known }) listOf(KeroProject("", "Other sessions")) else emptyList()
+    }
+    val groups = state.projects + other
+    val folded = remember(foldedProjects) {
+        foldedProjects.split(',').filter { it.isNotBlank() }.toSet()
+    }
+    val toggleProject: (String) -> Unit = { id ->
+        foldedProjects = if (id in folded) (folded - id).joinToString(",") else (folded + id).joinToString(",")
+    }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 760.dp).fillMaxHeight()) {
             if (searching) {
-                SearchAppBar(query, onQuery = { query = it }, onClose = { searching = false; query = "" })
+                SearchHeader(query, onQuery = { query = it }, onClose = { searching = false; query = "" })
             } else {
-                TopAppBar(
-                    title = { Text("Keroid", style = MaterialTheme.typography.titleLarge) },
-                    actions = {
-                        Box {
-                            IconButton(onClick = { createMenu = true }, enabled = connection.connected && ui.actions[machine?.id]?.busy != true) {
-                                Icon(Icons.Outlined.Add, "New session or project")
+                LargeHeader(
+                    title = "Sessions",
+                    titleTag = "sessions-title",
+                    subtitle = {
+                        if (machine != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(machine.name, fontFamily = KeroidMono, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                Text(if (machine.isTailscale) "Tailscale" else "SSH",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                Text(
+                                    if (connection.connected) "connected" else connection.status.label.lowercase(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (connection.connected) MaterialTheme.keroid.success else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            DropdownMenu(expanded = createMenu, onDismissRequest = { createMenu = false }) {
-                                DropdownMenuItem(text = { Text("Open project…") }, onClick = {
-                                    createMenu = false; machine?.let { onOpenProject(it.id) }
-                                })
-                                DropdownMenuItem(text = { Text("New session") }, onClick = {
-                                    createMenu = false; machine?.let { onNewSession(it.id, "") }
-                                })
-                            }
-                        }
-                        IconButton(onClick = { searching = true }) {
-                            Icon(Icons.Outlined.Search, contentDescription = "Search sessions")
+                        } else {
+                            Text("No machine selected", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    actions = {
+                        IconButton(onClick = { searching = true }) {
+                            Icon(Icons.Outlined.Search, "Search sessions")
+                        }
+                        ConnectionMenu(
+                            connection = connection,
+                            onDisconnect = { machine?.let { onDisconnect(it.id) } },
+                            onManage = onConnections,
+                            onRetry = onRetryStorage,
+                        )
+                    },
                 )
             }
-        },
-    ) { padding ->
-        Box(
-            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            Column(Modifier.widthIn(max = 760.dp).fillMaxSize()) {
-                if (ui.restoring) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-                }
-                ui.libraryError?.let { message ->
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        ErrorCard(message)
-                        TextButton(onClick = onRetryStorage) { Text("Retry saved connections") }
-                    }
-                }
-                ui.error?.let { message ->
-                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { ErrorCard(message) }
-                }
-                ui.actions[machine?.id]?.error?.let { ErrorCard(it) }
-                when {
-                    machine == null && !ui.restoring && ui.libraryError == null -> EmptyState(
-                        title = "No machines yet",
-                        body = "Save a machine and an SSH identity to see its sessions here.",
-                        action = "Add a machine",
-                        onAction = onAddMachine,
-                    )
 
-                    machine != null -> Column(Modifier.fillMaxSize()) {
-                        MachineStrip(
+            if (ui.restoring) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+            }
+            ui.libraryError?.let { message ->
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    ErrorCard(message)
+                    TextButton(onClick = onRetryStorage) { Text("Retry saved connections") }
+                }
+            }
+            ui.error?.let { message ->
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { ErrorCard(message) }
+            }
+            ui.actions[machine?.id]?.error?.let { message ->
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { ErrorCard(message) }
+            }
+
+            when {
+                machine == null && !ui.restoring && ui.libraryError == null -> EmptyState(
+                    title = "No machines yet",
+                    body = "Save a machine and an SSH identity to see its sessions here.",
+                    action = "Add a machine",
+                    onAction = onAddMachine,
+                )
+
+                machine != null -> {
+                    if (!searching) {
+                        MachineRail(
                             ui = ui,
                             selected = machine.id,
                             enabled = enabled,
                             onSelect = onSelectMachine,
                             onAdd = onAddMachine,
                         )
-                        when (connection.status) {
-                            ConnectionStatus.Connected -> ConnectedHeader(
-                                connection = connection,
-                                filter = filter,
-                                onFilter = { filterName = it.name },
-                                onDisconnect = { onDisconnect(machine.id) },
-                                enabled = enabled,
-                            )
+                        SegmentedGroup(
+                            options = SessionFilter.entries.map { it.label },
+                            counts = counts,
+                            selected = filter.ordinal,
+                            onSelect = { filterName = SessionFilter.entries[it].name },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    } else {
+                        SegmentedGroup(
+                            options = SessionFilter.entries.map { it.label },
+                            counts = counts,
+                            selected = filter.ordinal,
+                            onSelect = { filterName = SessionFilter.entries[it].name },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
 
-                            else -> ConnectPanel(
-                                machine = machine,
-                                connection = connection,
-                                enabled = enabled,
-                                onConnect = { onConnect(machine.id) },
-                                onDisconnect = { onDisconnect(machine.id) },
-                            )
-                        }
+                    if (connection.connected) {
                         SessionList(
                             machineId = machine.id,
                             state = state,
+                            groups = groups,
                             sessions = sessions,
-                            connected = connection.connected,
+                            folded = folded,
+                            searching = searching,
+                            onToggleProject = toggleProject,
                             onSession = onSession,
                             onNewSession = onNewSession,
                             creating = ui.actions[machine.id]?.busy == true,
                             onAction = { session, kind -> actionSessionId = session.id; actionKind = kind.name },
                         )
+                    } else {
+                        ConnectPanel(
+                            machine = machine,
+                            connection = connection,
+                            enabled = enabled,
+                            onConnect = { onConnect(machine.id) },
+                            onDisconnect = { onDisconnect(machine.id) },
+                        )
                     }
                 }
             }
+        }
+
+        if (machine != null && connection.connected && !searching) {
+            AddFab(
+                onClick = { createMenu = true },
+                contentDescription = "New session or project",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
+        }
+
+        if (createMenu) FabMenu(
+            onDismiss = { createMenu = false },
+            onNewSession = { createMenu = false; newSessionSheet = true },
+            onOpenProject = {
+                createMenu = false
+                machine?.let { onOpenProject(it.id) }
+            },
+            onAddMachine = { createMenu = false; onAddMachine() },
+        )
+
+        if (newSessionSheet && machine != null) {
+            NewSessionSheet(
+                machine = machine,
+                projects = state.projects,
+                onDismiss = { newSessionSheet = false },
+                onStart = { project ->
+                    newSessionSheet = false
+                    onNewSession(machine.id, project)
+                },
+                onOpenProject = {
+                    newSessionSheet = false
+                    onOpenProject(machine.id)
+                },
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchAppBar(query: String, onQuery: (String) -> Unit, onClose: () -> Unit) {
+private fun SearchHeader(query: String, onQuery: (String) -> Unit, onClose: () -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    TopAppBar(
-        navigationIcon = {
-            IconButton(onClick = onClose) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Close search")
-            }
-        },
-        title = {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Close search") }
             TextField(
                 value = query,
                 onValueChange = onQuery,
@@ -254,28 +355,27 @@ private fun SearchAppBar(query: String, onQuery: (String) -> Unit, onClose: () -
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 textStyle = MaterialTheme.typography.titleMedium,
+                shape = RoundedCornerShape(18.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
+                    focusedContainerColor = MaterialTheme.keroid.sunken,
+                    unfocusedContainerColor = MaterialTheme.keroid.sunken,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) {
+                        Icon(Icons.Outlined.Close, "Clear search")
+                    }
+                },
+                modifier = Modifier.weight(1f).focusRequester(focus),
             )
-        },
-        actions = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQuery("") }) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Clear search")
-                }
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-    )
+        }
+    }
 }
 
 @Composable
-private fun MachineStrip(
+private fun MachineRail(
     ui: MainUiState,
     selected: String,
     enabled: Boolean,
@@ -283,72 +383,278 @@ private fun MachineStrip(
     onAdd: () -> Unit,
 ) {
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.height((62 + 14 * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp),
     ) {
         items(ui.machines, key = { it.id }) { machine ->
-            FilterChip(
-                selected = machine.id == selected,
-                onClick = { onSelect(machine.id) },
-                enabled = enabled,
-                label = {
-                    Text(machine.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                },
-                leadingIcon = { StatusDot(ui.connection(machine.id).status) },
-            )
+            val connected = ui.connection(machine.id).connected
+            Column(
+                Modifier.width(60.dp).clickable(enabled = enabled) { onSelect(machine.id) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                CookieTile(machine.name, selected = machine.id == selected, connected = connected)
+                Text(
+                    machine.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (machine.id == selected) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         item(key = "add-machine") {
-            FilterChip(
-                selected = false,
-                onClick = onAdd,
-                enabled = enabled,
-                label = { Text("New") },
-                leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            Column(
+                Modifier.width(60.dp).clickable(enabled = enabled, onClick = onAdd),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Surface(
+                    onClick = onAdd,
+                    enabled = enabled,
+                    modifier = Modifier.size(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.keroid.raised,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Add, "Add machine", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text("Add", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionMenu(
+    connection: MachineUiState,
+    onDisconnect: () -> Unit,
+    onManage: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, "Session list actions") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Machines and identities") }, onClick = { open = false; onManage() })
+            if (connection.connected) DropdownMenuItem(
+                text = { Text("Disconnect") },
+                onClick = { open = false; onDisconnect() },
+            )
+            if (connection.status == ConnectionStatus.Error) DropdownMenuItem(
+                text = { Text("Retry saved connections") },
+                onClick = { open = false; onRetry() },
             )
         }
     }
 }
 
 @Composable
-private fun ConnectedHeader(
-    connection: MachineUiState,
-    filter: SessionFilter,
-    onFilter: (SessionFilter) -> Unit,
-    onDisconnect: () -> Unit,
-    enabled: Boolean,
+private fun SessionList(
+    machineId: String,
+    state: KeroState,
+    groups: List<KeroProject>,
+    sessions: List<KeroSession>,
+    folded: Set<String>,
+    searching: Boolean,
+    onToggleProject: (String) -> Unit,
+    onSession: (String, String) -> Unit,
+    onNewSession: (String, String) -> Unit,
+    creating: Boolean,
+    onAction: (KeroSession, SessionActionKind) -> Unit,
 ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (sessions.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    if (state.sessions.isEmpty()) "No sessions on this machine." else "No matching sessions.",
+                    modifier = Modifier.padding(vertical = 28.dp, horizontal = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (searching) {
+            items(sessions, key = { "flat:${it.id}" }) { session ->
+                GroupedCard {
+                    SessionRow(session, enabled = !creating,
+                        onClick = { onSession(machineId, session.id) },
+                        onAction = { onAction(session, it) })
+                }
+            }
+            return@LazyColumn
+        }
+        val known = state.projects.map { it.id }.toSet()
+        groups.forEach { project ->
+            val groupSessions = sessions.filter {
+                if (project.id.isEmpty()) it.project !in known else it.project == project.id
+            }
+            if (groupSessions.isEmpty()) return@forEach
+            val isFolded = project.id in folded
+            item(key = "project:$machineId:${project.id}") {
+                if (isFolded) {
+                    FoldedProjectRow(
+                        project = project,
+                        sessions = groupSessions,
+                        onToggle = { onToggleProject(project.id) },
+                    )
+                } else {
+                    ProjectHeader(
+                        name = project.name,
+                        count = groupSessions.size,
+                        expanded = true,
+                        onToggle = { onToggleProject(project.id) },
+                        onAdd = if (project.id.isNotEmpty()) {
+                            { onNewSession(machineId, project.id) }
+                        } else null,
+                    )
+                }
+            }
+            if (!isFolded) {
+                item(key = "rows:$machineId:${project.id}") {
+                    GroupedCard {
+                        groupSessions.forEachIndexed { index, session ->
+                            if (index > 0) GroupDivider()
+                            SessionRow(session, enabled = !creating,
+                                onClick = { onSession(machineId, session.id) },
+                                onAction = { onAction(session, it) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FoldedProjectRow(project: KeroProject, sessions: List<KeroSession>, onToggle: () -> Unit) {
+    val waiting = sessions.count { it.needsAttention }
+    val working = sessions.count { it.status == "working" }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
+        Modifier.fillMaxWidth().height(52.dp)
+            .background(MaterialTheme.keroid.raised, RoundedCornerShape(18.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            StatusDot(connection.status)
-            Text(
-                connection.status.label,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Icon(Icons.Outlined.ChevronRight, null, modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(project.name, style = MaterialTheme.typography.titleSmall)
+        Text("${sessions.size}", fontFamily = KeroidMono, fontSize = 9.5.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        val (label, color) = when {
+            waiting > 0 -> "$waiting needs you" to MaterialTheme.keroid.attention
+            working > 0 -> "$working working" to MaterialTheme.colorScheme.primary
+            else -> "${sessions.size} idle" to MaterialTheme.colorScheme.onSurfaceVariant
         }
-        TextButton(onClick = onDisconnect, enabled = enabled) {
-            Icon(Icons.Outlined.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("Disconnect", modifier = Modifier.padding(start = 6.dp))
-        }
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+}
+
+@Composable
+private fun SessionRow(
+    session: KeroSession,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onAction: (SessionActionKind) -> Unit,
+) {
+    var menu by rememberSaveable(session.id) { mutableStateOf(false) }
+    val colors = MaterialTheme.keroid
+    val dot = when {
+        session.needsAttention -> colors.attention
+        session.status == "working" -> MaterialTheme.colorScheme.primary
+        session.status == "error" -> colors.danger
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 66.dp)
+            .clickable(enabled = enabled, onClick = onClick),
     ) {
-        SessionFilter.entries.forEach { option ->
-            FilterChip(
-                selected = option == filter,
-                onClick = { onFilter(option) },
-                label = { Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        Row(
+            Modifier.fillMaxSize().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                Modifier.size(8.dp).background(dot, androidx.compose.foundation.shape.CircleShape),
             )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    session.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 1.dp),
+                ) {
+                    AgentBadge(session.agent)
+                    val meta = session.message.ifBlank {
+                        session.dir.takeIf { it.isNotBlank() } ?: "${session.panes.size} panes"
+                    }
+                    Text(
+                        meta,
+                        fontFamily = KeroidMono,
+                        fontSize = 9.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SessionStatusLabel(session.status)
+                val second = when {
+                    session.status == "working" && session.progress in 0..100 -> "${session.progress}%"
+                    session.status == "working" -> "working"
+                    session.panes.size > 1 -> "${session.panes.size} panes"
+                    session.unread -> "new"
+                    else -> ""
+                }
+                if (second.isNotEmpty()) Text(
+                    second,
+                    fontFamily = KeroidMono,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box {
+                IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Outlined.MoreVert, "Actions for ${session.label}",
+                        modifier = Modifier.size(18.dp), tint = colors.quiet)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Rename session") }, enabled = enabled,
+                        onClick = { menu = false; onAction(SessionActionKind.Rename) })
+                    DropdownMenuItem(text = { Text("Close session") }, enabled = enabled,
+                        onClick = { menu = false; onAction(SessionActionKind.CloseSession) })
+                }
+            }
+        }
+        if (session.status == "working") {
+            Box(
+                Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp)
+                    .fillMaxWidth().height(3.dp)
+                    .background(colors.progressTrack, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth(if (session.progress in 0..100) session.progress / 100f else 0.35f)
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)),
+                )
+            }
         }
     }
 }
@@ -362,15 +668,14 @@ private fun ConnectPanel(
     onDisconnect: () -> Unit,
 ) {
     Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.keroid.window,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(connection.status)
-                Text(connection.status.label, style = MaterialTheme.typography.titleSmall)
+                DotFor(connection.status)
+                Text(connection.status.label, style = MaterialTheme.typography.titleMedium)
             }
             Text(
                 connection.error ?: when (connection.status) {
@@ -384,6 +689,7 @@ private fun ConnectPanel(
                     else -> "Connect to list ${machine.name}'s sessions."
                 },
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 val busy = connection.status == ConnectionStatus.Connecting ||
@@ -392,7 +698,7 @@ private fun ConnectPanel(
                     TextButton(onClick = onDisconnect, enabled = enabled) { Text("Cancel") }
                 } else {
                     Button(onClick = onConnect, enabled = enabled) {
-                        Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Link, null, modifier = Modifier.size(18.dp))
                         Text("Connect", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -402,134 +708,123 @@ private fun ConnectPanel(
 }
 
 @Composable
-private fun SessionList(
-    machineId: String,
-    state: KeroState,
-    sessions: List<KeroSession>,
-    connected: Boolean,
-    onSession: (String, String) -> Unit,
-    onNewSession: (String, String) -> Unit,
-    creating: Boolean,
-    onAction: (KeroSession, SessionActionKind) -> Unit,
+private fun DotFor(status: ConnectionStatus) {
+    val color = when (status) {
+        ConnectionStatus.Connected -> MaterialTheme.keroid.success
+        ConnectionStatus.Connecting, ConnectionStatus.VerifyHost -> MaterialTheme.keroid.attention
+        ConnectionStatus.Error -> MaterialTheme.keroid.danger
+        ConnectionStatus.Offline -> MaterialTheme.colorScheme.outline
+    }
+    Box(Modifier.size(8.dp).background(color, androidx.compose.foundation.shape.CircleShape))
+}
+
+@Composable
+private fun FabMenu(
+    onDismiss: () -> Unit,
+    onNewSession: () -> Unit,
+    onOpenProject: () -> Unit,
+    onAddMachine: () -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (connected) {
-            if (sessions.isEmpty()) {
-                item(key = "empty") {
-                    Text(
-                        if (state.sessions.isEmpty()) "No sessions on this machine." else "No matching sessions.",
-                        modifier = Modifier.padding(vertical = 24.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            val known = state.projects.map { it.id }.toSet()
-            val groups = state.projects + if (sessions.any { it.project !in known }) {
-                listOf(KeroProject("", "Other sessions"))
-            } else {
-                emptyList()
-            }
-            groups.forEach { project ->
-                val groupSessions = sessions.filter { if (project.id.isEmpty()) it.project !in known else it.project == project.id }
-                if (groupSessions.isNotEmpty() || (project.id.isNotEmpty() && sessions.size == state.sessions.size)) {
-                    item(key = "project:$machineId:${project.id}") {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(project.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                            if (project.id.isNotEmpty()) IconButton(enabled = !creating,
-                                onClick = { onNewSession(machineId, project.id) }) {
-                                Icon(Icons.Outlined.Add, "New session in ${project.name}")
-                            }
-                        }
-                    }
-                    items(groupSessions, key = { "session:$machineId:${it.id}" }) { session ->
-                        SessionCard(session, enabled = !creating,
-                            onClick = { onSession(machineId, session.id) },
-                            onAction = { onAction(session, it) })
-                    }
-                }
-            }
-        } else {
-            item(key = "offline") {
-                Text(
-                    "Sessions appear here once this machine is connected.",
-                    modifier = Modifier.padding(top = 16.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = onDismiss)) {
+        Column(
+            Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            FabMenuItem("Open project…", Icons.Outlined.FolderOpen, onOpenProject)
+            FabMenuItem("New session", Icons.Outlined.Terminal, onNewSession)
+            FabMenuItem("Add machine", Icons.Outlined.Add, onAddMachine)
+            Surface(
+                onClick = onDismiss,
+                modifier = Modifier.size(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.keroid.high,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Close, "Close menu") }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SessionCard(session: KeroSession, enabled: Boolean, onClick: () -> Unit,
-                        onAction: (SessionActionKind) -> Unit) {
-    var menu by rememberSaveable(session.id) { mutableStateOf(false) }
-    Surface(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
+private fun FabMenuItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .semantics(mergeDescendants = true) {}
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
     ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    session.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                StatusLabel(session.status)
-                Box {
-                    IconButton(onClick = { menu = true }, enabled = enabled) {
-                        Icon(Icons.Outlined.MoreVert, "Actions for ${session.label}")
-                    }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Rename session") }, enabled = enabled,
-                            onClick = { menu = false; onAction(SessionActionKind.Rename) })
-                        DropdownMenuItem(text = { Text("Close session") }, enabled = enabled,
-                            onClick = { menu = false; onAction(SessionActionKind.CloseSession) })
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.keroid.high) {
+            Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                style = MaterialTheme.typography.labelLarge)
+        }
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier.size(48.dp)
+                .background(MaterialTheme.keroid.high, RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewSessionSheet(
+    machine: Machine,
+    projects: List<KeroProject>,
+    onDismiss: () -> Unit,
+    onStart: (String) -> Unit,
+    onOpenProject: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.keroid.window,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
+            Text("New session", style = MaterialTheme.typography.headlineSmall)
+            Text(machine.name, fontFamily = KeroidMono, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+            GroupedCard {
+                SheetRow("Shell", "Start in the default project", Icons.Outlined.Terminal) { onStart("") }
+                projects.forEach { project ->
+                    GroupDivider()
+                    SheetRow(project.name, project.dir.ifBlank { "Project" }, Icons.Outlined.FolderOpen) {
+                        onStart(project.id)
                     }
                 }
+                GroupDivider()
+                SheetRow("Open project…", "Browse folders on ${machine.name}", Icons.Outlined.FolderOpen, onOpenProject)
             }
-            if (session.message.isNotBlank()) {
-                Text(
-                    session.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp)) {
+                Text("Cancel")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Outlined.Terminal,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    session.agent.ifBlank {
-                        "${session.panes.size} ${if (session.panes.size == 1) "pane" else "panes"}"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (session.unread) {
-                    Text("• Unread", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            if (session.progress in 0..100 && session.status == "working") {
-                LinearProgressIndicator(
-                    progress = { session.progress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        }
+    }
+}
+
+@Composable
+private fun SheetRow(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -538,30 +833,32 @@ private val previewState = KeroState(
     projects = listOf(KeroProject("project", "keroid")),
     sessions = listOf(
         KeroSession(
-            "review", "project", name = "Review SSH connection", agent = "Pi", status = "waiting",
-            message = "Ready for you to review the changes.", unread = true,
+            "review", "project", name = "Host-key pin on reconnect", agent = "codex", status = "waiting",
+            message = "3 files changed · tests pass", unread = true,
         ),
         KeroSession(
-            "build", "project", name = "Android build", agent = "Codex", status = "working",
-            message = "Checking connection state and key storage", progress = 65,
+            "build", "project", name = "Android build · smoke", agent = "claude", status = "working",
+            message = "24 tests passed · installing", progress = 68,
         ),
-        KeroSession("shell", "project", name = "Development", status = "idle"),
+        KeroSession("shell", "project", name = "Polish the terminal key dock", agent = "codex", status = "idle",
+            message = "8 files changed · 214 insertions"),
     ),
 )
 
-@Preview(name = "Home · light", widthDp = 412, heightDp = 915)
-@Preview(name = "Home · dark", widthDp = 412, heightDp = 915, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
-@Preview(name = "Home · large text", widthDp = 412, heightDp = 915, fontScale = 1.5f)
-@Preview(name = "Home · tablet", widthDp = 900, heightDp = 1000)
-@Preview(name = "Home · landscape", widthDp = 915, heightDp = 412)
-@Preview(name = "Home · small", widthDp = 360, heightDp = 640)
+@Preview(name = "Sessions · dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Sessions · light", widthDp = 390, heightDp = 844)
+@Preview(name = "Sessions · large text", widthDp = 390, heightDp = 844, fontScale = 1.5f)
+@Preview(name = "Sessions · tablet", widthDp = 900, heightDp = 1000)
 @Composable
 private fun HomePreview() {
     KeroidTheme(dynamicColor = false) {
         HomeScreen(
             MainUiState(
                 restoring = false,
-                machines = listOf(Machine("dev", "Dev machine", "devbox", "alice", "key")),
+                machines = listOf(
+                    Machine("dev", "Dev machine", "devbox", "alice", "key"),
+                    Machine("lab", "Homelab", "homelab", "alice", "key"),
+                ),
                 selectedMachineId = "dev",
                 connections = mapOf("dev" to MachineUiState(ConnectionStatus.Connected, previewState)),
             ),
@@ -570,25 +867,10 @@ private fun HomePreview() {
     }
 }
 
-@Preview(name = "Home · empty", widthDp = 412, heightDp = 915)
+@Preview(name = "Sessions · empty", widthDp = 390, heightDp = 844)
 @Composable
 private fun HomeEmptyPreview() {
     KeroidTheme(dynamicColor = false) {
         HomeScreen(MainUiState(restoring = false), {}, { _, _ -> }, {}, {}, {}, {})
-    }
-}
-
-@Preview(name = "Home · offline", widthDp = 412, heightDp = 915)
-@Composable
-private fun HomeOfflinePreview() {
-    KeroidTheme(dynamicColor = false) {
-        HomeScreen(
-            MainUiState(
-                restoring = false,
-                machines = listOf(Machine("dev", "Dev machine", "devbox", "alice", "key")),
-                selectedMachineId = "dev",
-            ),
-            {}, { _, _ -> }, {}, {}, {}, {},
-        )
     }
 }

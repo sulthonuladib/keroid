@@ -5,6 +5,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.Brush
@@ -25,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -44,7 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import com.sulthonuladib.keroid.ui.components.VerticalHairline
 
 /** Legacy bytes only for callers without a native terminal (including input-only tests). */
 object TerminalKeys {
@@ -232,79 +238,168 @@ fun TerminalKeyBar(
         onCtrl(false); shift = false; alt = false
     }
     val toggleKeyboard = { if (keyboardVisible) keyboard?.hide() else keyboard?.show(); Unit }
-    Surface(modifier.widthIn(max = 560.dp), shape = MaterialTheme.shapes.extraLarge,
+    Surface(modifier.widthIn(max = 560.dp).then(if (!expanded || keyboardVisible) Modifier.height(56.dp) else Modifier),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp) {
         if (!expanded) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onToggle, modifier = Modifier.heightIn(min = 48.dp)
-                    .semantics { contentDescription = "Show extra keys" }) {
-                    Icon(Icons.Outlined.KeyboardCommandKey, contentDescription = null)
-                    Text(if (ctrl) "Ctrl" else "Keys", Modifier.padding(start = 4.dp))
-                }
-                IconButton(onClick = toggleKeyboard) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                // The pinned set from the design: modifiers, editing keys and
+                // arrows. The rest live behind Keys, so the bar never crowds a
+                // phone-width terminal.
+                DockKey("ctrl", "Control", selected = ctrl, minWidth = 40.dp) { onCtrl(!ctrl) }
+                DockKey("esc", "Escape", minWidth = 40.dp) { press(TerminalKey.Escape) }
+                DockKey("tab", "Tab", minWidth = 40.dp) { press(TerminalKey.Tab) }
+                VerticalHairline(Modifier.padding(horizontal = 2.dp))
+                DockKey("←", "Arrow left", minWidth = 40.dp) { press(TerminalKey.Left) }
+                DockKey("→", "Arrow right", minWidth = 40.dp) { press(TerminalKey.Right) }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = toggleKeyboard, modifier = Modifier.size(40.dp)) {
                     Icon(if (keyboardVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
-                        if (keyboardVisible) "Hide keyboard" else "Show keyboard")
+                        if (keyboardVisible) "Hide keyboard" else "Show keyboard",
+                        modifier = Modifier.size(20.dp))
+                }
+                Surface(
+                    onClick = onToggle,
+                    modifier = Modifier.height(40.dp).semantics { contentDescription = "Show extra keys" },
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Outlined.KeyboardCommandKey, null, modifier = Modifier.size(16.dp))
+                        Text("Keys", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+        } else if (keyboardVisible) {
+            // With the IME up, a tall panel would either cover the live prompt or
+            // force the cursor to jump. Keep the same 56 dp dock height and let
+            // the full grouped panel wait until the keyboard is dismissed.
+            Row(Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                DockKey("Esc", "Escape", minWidth = 40.dp) { press(TerminalKey.Escape) }
+                DockKey("Ctrl", "Control", selected = ctrl, minWidth = 40.dp) { onCtrl(!ctrl) }
+                DockKey("Tab", "Tab", minWidth = 40.dp) { press(TerminalKey.Tab) }
+                VerticalHairline(Modifier.padding(horizontal = 2.dp))
+                DockKey("←", "Arrow left", minWidth = 40.dp) { press(TerminalKey.Left) }
+                DockKey("→", "Arrow right", minWidth = 40.dp) { press(TerminalKey.Right) }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = toggleKeyboard, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Outlined.KeyboardHide, "Hide keyboard", modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onToggle, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Outlined.ExpandMore, "Hide extra keys", modifier = Modifier.size(20.dp))
                 }
             }
         } else {
-            Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                DockKey("Esc", "Escape", onClick = { press(TerminalKey.Escape) })
-                CircleDockKey("Ctrl", "Control", ctrl) { onCtrl(!ctrl) }
-                DockKey("Tab", "Tab", onClick = { press(TerminalKey.Tab) })
-                // Only this group scrolls; essential keys and controls stay put.
-                val scroll = rememberLazyListState()
-                val snap = rememberSnapFlingBehavior(lazyListState = scroll)
-                val keys = listOf(
-                    DockKeySpec("←", "Arrow left") { press(TerminalKey.Left) },
-                    DockKeySpec("↓", "Arrow down") { press(TerminalKey.Down) },
-                    DockKeySpec("↑", "Arrow up") { press(TerminalKey.Up) },
-                    DockKeySpec("→", "Arrow right") { press(TerminalKey.Right) },
-                    DockKeySpec("↵", "Enter") { press(TerminalKey.Enter) },
-                    DockKeySpec("Shift", "Shift", selected = shift) { shift = !shift },
-                    DockKeySpec("Alt", "Alt", selected = alt) { alt = !alt },
-                    DockKeySpec("Home", "Home") { press(TerminalKey.Home) },
-                    DockKeySpec("End", "End") { press(TerminalKey.End) },
-                    DockKeySpec("PgUp", "Page up") { press(TerminalKey.PageUp) },
-                    DockKeySpec("PgDn", "Page down") { press(TerminalKey.PageDown) },
-                    DockKeySpec("Del", "Delete") { press(TerminalKey.Delete) },
-                    DockKeySpec("⌫", "Backspace") { press(TerminalKey.Backspace) },
-                    DockKeySpec("C-c", "Control C") { control('c') },
-                    DockKeySpec("C-r", "Control R") { control('r') },
-                    DockKeySpec("C-w", "Control W") { control('w') },
-                    DockKeySpec("C-u", "Control U") { control('u') },
-                    DockKeySpec("C-k", "Control K") { control('k') },
-                )
-                Box(Modifier.weight(1f)) {
-                    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                        Box {
-                            LazyRow(state = scroll, flingBehavior = snap,
-                                contentPadding = PaddingValues(horizontal = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                items(keys.size, key = { keys[it].description }, contentType = { "terminal-key" }) { index ->
-                                    val key = keys[index]
-                                    DockKey(key.label, key.description, selected = key.selected, onClick = key.onClick)
-                                }
-                            }
-                            // Edge fade shows the group continues sideways without clipping a glyph.
-                            if (scroll.canScrollForward) Box(Modifier.matchParentSize()) {
-                                Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(20.dp)
-                                    .background(Brush.horizontalGradient(listOf(Color.Transparent,
-                                        MaterialTheme.colorScheme.surfaceContainerHighest))))
-                            }
-                        }
+            val keys = listOf(
+                DockKeySpec("←", "Arrow left") { press(TerminalKey.Left) },
+                DockKeySpec("↓", "Arrow down") { press(TerminalKey.Down) },
+                DockKeySpec("↑", "Arrow up") { press(TerminalKey.Up) },
+                DockKeySpec("→", "Arrow right") { press(TerminalKey.Right) },
+                DockKeySpec("Home", "Home") { press(TerminalKey.Home) },
+                DockKeySpec("End", "End") { press(TerminalKey.End) },
+                DockKeySpec("PgUp", "Page up") { press(TerminalKey.PageUp) },
+                DockKeySpec("PgDn", "Page down") { press(TerminalKey.PageDown) },
+                DockKeySpec("/", "Slash") { onBytes("/".toByteArray()) },
+                DockKeySpec("|", "Pipe") { onBytes("|".toByteArray()) },
+                DockKeySpec("~", "Tilde") { onBytes("~".toByteArray()) },
+                DockKeySpec("-", "Dash") { onBytes("-".toByteArray()) },
+                DockKeySpec("=", "Equals") { onBytes("=".toByteArray()) },
+                DockKeySpec("[", "Left bracket") { onBytes("[".toByteArray()) },
+                DockKeySpec("]", "Right bracket") { onBytes("]".toByteArray()) },
+                DockKeySpec("\\", "Backslash") { onBytes("\\".toByteArray()) },
+                DockKeySpec("⌫", "Backspace") { press(TerminalKey.Backspace) },
+                DockKeySpec("Del", "Delete") { press(TerminalKey.Delete) },
+                DockKeySpec("C-c", "Control C") { control('c') },
+                DockKeySpec("C-r", "Control R") { control('r') },
+                DockKeySpec("C-w", "Control W") { control('w') },
+                DockKeySpec("C-u", "Control U") { control('u') },
+                DockKeySpec("C-k", "Control K") { control('k') },
+                DockKeySpec("C-z", "Control Z") { control('z') },
+            )
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Keys", style = MaterialTheme.typography.titleMedium)
+                    if (ctrl) Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Text(
+                            "ctrl locked",
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = toggleKeyboard, modifier = Modifier.size(36.dp)) {
+                        Icon(if (keyboardVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
+                            if (keyboardVisible) "Hide keyboard" else "Show keyboard",
+                            modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = onToggle, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Outlined.ExpandMore, "Hide extra keys", modifier = Modifier.size(20.dp))
                     }
                 }
-                IconButton(onClick = toggleKeyboard) {
-                    Icon(if (keyboardVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
-                        if (keyboardVisible) "Hide keyboard" else "Show keyboard")
+                KeySectionLabel("Modifiers")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    DockKey("ctrl", "Control", selected = ctrl, modifier = Modifier.weight(1f)) { onCtrl(!ctrl) }
+                    DockKey("alt", "Alt", selected = alt, modifier = Modifier.weight(1f)) { alt = !alt }
+                    DockKey("shift", "Shift", selected = shift, modifier = Modifier.weight(1f)) { shift = !shift }
+                    DockKey("esc", "Escape", modifier = Modifier.weight(1f)) { press(TerminalKey.Escape) }
+                    DockKey("tab", "Tab", modifier = Modifier.weight(1f)) { press(TerminalKey.Tab) }
                 }
-                IconButton(onClick = onToggle) { Icon(Icons.Outlined.ExpandMore, "Hide extra keys") }
+                KeySectionLabel("Navigation · symbols · editing")
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(8),
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(keys.size, key = { keys[it].description }, contentType = { "terminal-key" }) { index ->
+                        val key = keys[index]
+                        DockKey(key.label, key.description, selected = key.selected,
+                            modifier = Modifier.fillMaxWidth(), minWidth = 0.dp, onClick = key.onClick)
+                    }
+                }
+                KeySectionLabel("Input")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    DockKey("space", "Space", modifier = Modifier.weight(2f), minWidth = 0.dp) {
+                        onBytes(" ".toByteArray()); onCtrl(false); shift = false; alt = false
+                    }
+                    DockKey("enter", "Enter", modifier = Modifier.weight(1f), minWidth = 0.dp) { press(TerminalKey.Enter) }
+                    DockKey("del", "Delete", modifier = Modifier.weight(1f), minWidth = 0.dp) { press(TerminalKey.Delete) }
+                }
+                Text(
+                    "Long-press a modifier to lock it. Sticky keys stay lit.",
+                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
+}
+
+/** A quiet mono heading inside the expanded key panel. */
+@Composable
+private fun KeySectionLabel(text: String) {
+    Text(
+        text.uppercase(),
+        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.5.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** One key of the scrollable group: label, accessibility name and tap action. */
@@ -328,9 +423,9 @@ private fun CircleDockKey(label: String, description: String, selected: Boolean,
 /** Key inside the grouped pill: transparent until selected, so the group reads as one. */
 @Composable
 private fun DockKey(label: String, description: String, modifier: Modifier = Modifier,
-                    selected: Boolean = false, onClick: () -> Unit) {
-    Surface(modifier = modifier.heightIn(min = 48.dp).widthIn(min = 48.dp),
-        onClick = onClick, shape = MaterialTheme.shapes.large,
+                    selected: Boolean = false, minWidth: Dp = 48.dp, onClick: () -> Unit) {
+    Surface(modifier = modifier.heightIn(min = 48.dp).widthIn(min = minWidth),
+        onClick = onClick, shape = MaterialTheme.shapes.small,
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
         Box(Modifier.padding(horizontal = 6.dp).semantics { contentDescription = description; this.selected = selected },
             contentAlignment = Alignment.Center) {

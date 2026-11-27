@@ -6,7 +6,7 @@
 # Override with KERO_REF=... (a tag, or "main" for a deliberate newer look).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-ref="${KERO_REF:-v2.1.24}"
+ref="${KERO_REF:-v2.1.27}"
 dir="$root/repos/kero"
 mkdir -p "$root/repos"
 
